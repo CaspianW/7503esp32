@@ -1,3 +1,12 @@
+/**
+ * @file robot_controller.cpp
+ * @brief Robot initialization and periodic scheduling (placeholder).
+ * @author Caspian Wu
+ * @date 2026-09-28
+ * @version 0.1.0
+ * @copyright Copyright (c) 2026 Caspian Wu.
+ */
+
 #include "robot_controller.h"
 
 namespace robot {

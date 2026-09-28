@@ -1,3 +1,12 @@
+/**
+ * @file robot_types.h
+ * @brief Shared robot data types.
+ * @author Caspian Wu
+ * @date 2026-09-28
+ * @version 0.1.0
+ * @copyright Copyright (c) 2026 Caspian Wu.
+ */
+
 #pragma once
 
 #include <stdint.h>
@@ -5,11 +14,11 @@
 namespace robot {
 
 enum WheelId : uint8_t {
-  kFrontLeft = 0,  // M1
-  kRearLeft = 1,   // M2
-  kFrontRight = 2, // M3
-  kRearRight = 3,  // M4
-  kWheelCount = 4
+  frontLeft = 0,  // M1
+  rearLeft = 1,   // M2
+  frontRight = 2, // M3
+  rearRight = 3,  // M4
+  wheelCount = 4
 };
 
 struct Twist2D {
@@ -18,9 +27,14 @@ struct Twist2D {
   float wzRadPerSec; // 逆时针为正
 };
 
+enum class LiftPosition : uint8_t {
+  lowered,
+  raised
+};
+
 // 各车轮的正值均表示其配置的前进方向；每个电机的实际方向仍需校准。
 struct WheelValues {
-  float value[kWheelCount];
+  float value[wheelCount];
 };
 
 struct ImuSample {

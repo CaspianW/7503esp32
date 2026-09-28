@@ -1,3 +1,12 @@
+/**
+ * @file safety.h
+ * @brief Robot safety management interface.
+ * @author Caspian Wu
+ * @date 2026-09-28
+ * @version 0.1.0
+ * @copyright Copyright (c) 2026 Caspian Wu.
+ */
+
 #pragma once
 
 #include <stdint.h>
