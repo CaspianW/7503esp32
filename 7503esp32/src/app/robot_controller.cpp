@@ -3,14 +3,14 @@
 namespace robot {
 
 bool RobotController::begin() {
-  // Scaffold only: keep the robot disabled until the drivers, geometry, PID
-  // gains, and micro-ROS transport have been implemented and calibrated.
+  // 目前只有框架；驱动、底盘尺寸、PID 参数和 micro-ROS 通信完成并校准前，
+  // 保持机器人禁用。
   initialized_ = false;
   return initialized_;
 }
 
 void RobotController::update() {
-  // The non-blocking periodic control loop will be implemented here.
+  // 在这里实现非阻塞的周期控制循环。
 }
 
-} // namespace robot
+} // robot 命名空间结束

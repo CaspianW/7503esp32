@@ -6,6 +6,6 @@ WheelPid::WheelPid()
     : gains_{0.0f, 0.0f, 0.0f, 0.0f, 0.0f}, integral_(0.0f),
       previousError_(0.0f), hasPreviousError_(false) {}
 
-} // namespace robot
+} // robot 命名空间结束
 
-// Discrete PID implementation and output saturation to be added here.
+// 在这里实现离散 PID 计算和输出限幅。

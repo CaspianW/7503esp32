@@ -1,4 +1,34 @@
-/1. DASE7503 Group Project_2026-27_1B.pdf
-/2. DASE7503 Group Project_QR Code and Gamefield.pdf
-/3. Group Projects Materials.pdf
-/4. DASE7503_Appendix.Samples of QR codes.pdf
+# 课程资料及其他 PDF 仅保存在本地，不提交到 Git。
+*.pdf
+*.PDF
+
+# Arduino / ESP32 编译产物
+build/
+arduino_build_*/
+arduino_cache_*/
+.pio/
+
+# 原生编译及 ESP-IDF 编译产物
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+sdkconfig
+sdkconfig.old
+
+# 固件和编译中间文件
+*.o
+*.a
+*.elf
+*.bin
+*.hex
+*.uf2
+*.map
+*.lst
+*.d
+
+# 本地编辑器索引和操作系统文件
+.vscode/browse.vc.db*
+.vscode/*.lock
+.DS_Store
+__pycache__/
+*.py[cod]

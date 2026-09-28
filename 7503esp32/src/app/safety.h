@@ -20,4 +20,4 @@ private:
   bool commandTimedOut_;
 };
 
-} // namespace robot
+} // robot 命名空间结束

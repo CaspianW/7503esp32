@@ -13,13 +13,12 @@ enum WheelId : uint8_t {
 };
 
 struct Twist2D {
-  float vxMps;       // forward is positive
-  float vyMps;       // left is positive
-  float wzRadPerSec; // counter-clockwise is positive
+  float vxMps;       // 向前为正
+  float vyMps;       // 向左为正
+  float wzRadPerSec; // 逆时针为正
 };
 
-// All wheel values use positive motion in the robot's configured forward
-// wheel direction. The physical sign for each motor will be calibrated.
+// 各车轮的正值均表示其配置的前进方向；每个电机的实际方向仍需校准。
 struct WheelValues {
   float value[kWheelCount];
 };
@@ -45,4 +44,4 @@ struct OdometryState {
   uint32_t timestampMs;
 };
 
-} // namespace robot
+} // robot 命名空间结束

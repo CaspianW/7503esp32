@@ -1,6 +1,6 @@
 #pragma once
 
-#include "robot_types.h"
+#include "../common/robot_types.h"
 
 namespace robot {
 
@@ -12,4 +12,4 @@ public:
   void resetAll();
 };
 
-} // namespace robot
+} // robot 命名空间结束

@@ -1,12 +1,12 @@
 #pragma once
 
-#include "../lib/encoder.h"
-#include "../lib/imu.h"
-#include "../lib/mecanum.h"
-#include "../lib/motor_driver.h"
-#include "../lib/odometry.h"
-#include "../lib/wheel_pid.h"
-#include "ros_bridge.h"
+#include "../communication/ros_bridge.h"
+#include "../control/mecanum.h"
+#include "../control/odometry.h"
+#include "../control/wheel_pid.h"
+#include "../drivers/encoder.h"
+#include "../drivers/imu.h"
+#include "../drivers/motor_driver.h"
 #include "safety.h"
 
 namespace robot {
@@ -29,4 +29,4 @@ private:
   bool initialized_;
 };
 
-} // namespace robot
+} // robot 命名空间结束

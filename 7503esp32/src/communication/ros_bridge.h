@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../lib/robot_types.h"
+#include "../common/robot_types.h"
 
 namespace robot {
 
@@ -14,4 +14,4 @@ public:
   bool connected() const;
 };
 
-} // namespace robot
+} // robot 命名空间结束

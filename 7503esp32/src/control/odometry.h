@@ -1,6 +1,6 @@
 #pragma once
 
-#include "robot_types.h"
+#include "../common/robot_types.h"
 
 namespace robot {
 
@@ -15,4 +15,4 @@ private:
   OdometryState state_;
 };
 
-} // namespace robot
+} // robot 命名空间结束

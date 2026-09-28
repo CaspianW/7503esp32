@@ -4,8 +4,7 @@ robot::RobotController robotController;
 bool robotControllerReady = false;
 
 void setup() {
-  // The USB serial port will be used by micro-ROS. Avoid writing debug text
-  // to it once the micro-ROS transport is enabled.
+  // USB 串口将用于 micro-ROS 通信；启用后不要再向该串口输出调试文本。
   robotControllerReady = robotController.begin();
 }
 
