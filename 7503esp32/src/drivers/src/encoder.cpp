@@ -7,10 +7,10 @@
  * @copyright Copyright (c) 2026 Caspian Wu.
  */
 
-#include "encoder.h"
+#include "../include/encoder.h"
 
-#include "../config/board_pins.h"
-#include "../config/robot_config.h"
+#include "../../config/board_pins.h"
+#include "../../config/robot_config.h"
 
 #include <Arduino.h>
 #include <driver/pcnt.h>
@@ -19,7 +19,7 @@ namespace robot {
 namespace {
 
 constexpr int16_t counterLimit = 30000;
-constexpr uint16_t glitchFilterCycles = 100;
+constexpr uint16_t glitchFilter = 100; // 单位 APB 时钟周期
 
 bool configureChannel(pcnt_unit_t unit, pcnt_channel_t channel,
                       int pulsePin, int directionPin, bool isChannelA) {
@@ -54,7 +54,7 @@ bool Encoder::begin() {
                           true) ||
         !configureChannel(unit, PCNT_CHANNEL_1, pins.encoderB, pins.encoderA,
                           false) ||
-        pcnt_set_filter_value(unit, glitchFilterCycles) != ESP_OK ||
+        pcnt_set_filter_value(unit, glitchFilter) != ESP_OK ||
         pcnt_filter_enable(unit) != ESP_OK ||
         pcnt_counter_pause(unit) != ESP_OK ||
         pcnt_counter_clear(unit) != ESP_OK ||

@@ -25,10 +25,10 @@ struct MotorPins {
 // 电机线缆的白色接头连接到此控制板。
 constexpr uint8_t motorCount = 4;
 constexpr MotorPins motorPins[motorCount] = {
-    {4, 5, 6, 7},     // M1：左前
-    {15, 16, 47, 48}, // M2：左后
-    {9, 10, 11, 12},  // M3：右前
-    {13, 14, 1, 2},   // M4：右后
+    {4, 5, 6, 7},     // M1：实际车轮位置待确认
+    {15, 16, 47, 48}, // M2：实际车轮位置待确认
+    {9, 10, 11, 12},  // M3：实际车轮位置待确认
+    {13, 14, 1, 2},   // M4：实际车轮位置待确认
 };
 
 constexpr uint8_t imuSda = 40;

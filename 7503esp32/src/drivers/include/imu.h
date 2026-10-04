@@ -9,7 +9,7 @@
 
 #pragma once
 
-#include "../common/robot_types.h"
+#include "../../common/robot_types.h"
 
 #include <ICM42670P.h>
 
@@ -26,7 +26,7 @@ private:
   ICM42670 sensorHighAddress_{Wire, true};
   ICM42670 *sensor_ = nullptr;
   bool initialized_ = false;
-  float gyroBiasRadPerSec_[3] = {};
+  float gyroBias_[3] = {}; // 单位 rad/s
 };
 
 } // robot 命名空间结束

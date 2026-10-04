@@ -7,7 +7,7 @@
  * @copyright Copyright (c) 2026 Caspian Wu.
  */
 
-#include "wheel_control.h"
+#include "../include/wheel_control.h"
 
 namespace robot {
 
@@ -30,13 +30,12 @@ void WheelControl::configure(WheelId wheel, const PidParam &param) {
   }
 }
 
-WheelValues WheelControl::update(const WheelValues &targetMps,
-                                 const WheelValues &measuredMps,
-                                 float dtSeconds) {
+WheelValues WheelControl::update(const WheelValues &target,
+                                 const WheelValues &measured,
+                                 float dt) {
   WheelValues duty{};
   for (uint8_t i = 0; i < wheelCount; ++i) {
-    duty.value[i] = pid_[i].update(targetMps.value[i], measuredMps.value[i],
-                                 dtSeconds);
+    duty.value[i] = pid_[i].update(target.value[i], measured.value[i], dt);
   }
   return duty;
 }

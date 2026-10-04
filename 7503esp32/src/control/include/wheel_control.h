@@ -9,7 +9,7 @@
 
 #pragma once
 
-#include "../common/robot_types.h"
+#include "../../common/robot_types.h"
 #include "pid.h"
 
 namespace robot {
@@ -20,8 +20,9 @@ public:
   void configure(const PidParam &param);
   void configure(const PidParam (&param)[wheelCount]);
   void configure(WheelId wheel, const PidParam &param);
-  WheelValues update(const WheelValues &targetMps,
-                     const WheelValues &measuredMps, float dtSeconds);
+  // target、measured 的轮速单位为 m/s；dt 单位为 s。
+  WheelValues update(const WheelValues &target,
+                     const WheelValues &measured, float dt);
   void reset();
 
 private:

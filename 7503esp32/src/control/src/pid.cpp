@@ -7,7 +7,7 @@
  * @copyright Copyright (c) 2026 Caspian Wu.
  */
 
-#include "pid.h"
+#include "../include/pid.h"
 
 #include <math.h>
 

@@ -10,17 +10,33 @@
 #pragma once
 
 #include "../communication/ros_bridge.h"
-#include "../control/mecanum.h"
-#include "../control/odometry.h"
-#include "../control/lift_controller.h"
-#include "../control/wheel_control.h"
-#include "../drivers/encoder.h"
-#include "../drivers/imu.h"
-#include "../drivers/motor_driver.h"
-#include "../drivers/servo_driver.h"
+#include "../control/include/mecanum.h"
+#include "../control/include/odometry.h"
+#include "../control/include/lift_controller.h"
+#include "../control/include/wheel_control.h"
+#include "../drivers/include/encoder.h"
+#include "../drivers/include/imu.h"
+#include "../drivers/include/motor_driver.h"
+#include "../drivers/include/servo_driver.h"
 #include "safety.h"
 
 namespace robot {
+
+enum class MotorBenchPhase : uint8_t {
+  wait,
+  run,
+  done
+};
+
+// 只根据上电后的经过时间决定测试阶段；无符号减法兼容 millis() 回绕。
+// start、now、wait、run 的单位均为 ms。
+inline MotorBenchPhase motorBenchPhase(uint32_t start, uint32_t now,
+                                      uint32_t wait, uint32_t run) {
+  const uint32_t elapsed = now - start; // 单位 ms
+  if (elapsed < wait) return MotorBenchPhase::wait;
+  if (elapsed - wait < run) return MotorBenchPhase::run;
+  return MotorBenchPhase::done;
+}
 
 class RobotController {
 public:
@@ -40,6 +56,7 @@ private:
   Safety safety_;
 
   bool initialized_;
+  uint32_t motorBenchStart_ = 0; // 单位 ms
 };
 
 } // robot 命名空间结束

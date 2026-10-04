@@ -16,14 +16,14 @@ namespace robot {
 class Safety {
 public:
   void begin();
-  void noteVelocityCommand(uint32_t timestampMs);
+  void noteVelocityCommand(uint32_t timestamp); // 单位 ms
   void setEmergencyStop(bool active);
-  void update(uint32_t nowMs);
+  void update(uint32_t now); // 单位 ms
   bool motionAllowed() const;
   bool commandTimedOut() const;
 
 private:
-  uint32_t lastCommandMs_;
+  uint32_t lastCommand_; // 单位 ms
   bool hasCommand_;
   bool emergencyStop_;
   bool commandTimedOut_;

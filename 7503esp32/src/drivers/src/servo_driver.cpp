@@ -7,10 +7,10 @@
  * @copyright Copyright (c) 2026 Caspian Wu.
  */
 
-#include "servo_driver.h"
+#include "../include/servo_driver.h"
 
-#include "../config/board_pins.h"
-#include "../config/robot_config.h"
+#include "../../config/board_pins.h"
+#include "../../config/robot_config.h"
 
 #include <Arduino.h>
 
@@ -18,23 +18,23 @@ namespace robot {
 namespace {
 
 constexpr uint8_t servoPwmChannel = 4;
-constexpr uint8_t servoPwmResolutionBits = 14;
-constexpr uint16_t absoluteMinPulseUs = 500;
-constexpr uint16_t absoluteMaxPulseUs = 2500;
+constexpr uint8_t servoPwmResolution = 14; // 单位 bit
+constexpr uint16_t absoluteMinPulse = 500; // 单位 µs
+constexpr uint16_t absoluteMaxPulse = 2500; // 单位 µs
 
 } // 匿名命名空间结束
 
-bool ServoDriver::begin(uint8_t pin, uint32_t frequencyHz) {
+bool ServoDriver::begin(uint8_t pin, uint32_t frequency) {
   if (initialized_) {
-    return pin == pin_ && frequencyHz == frequencyHz_;
+    return pin == pin_ && frequency == frequency_;
   }
 
-  const uint16_t lower = config::liftLoweredPulseUs;
-  const uint16_t upper = config::liftRaisedPulseUs;
+  const uint16_t lower = config::liftLoweredPulse;
+  const uint16_t upper = config::liftRaisedPulse;
   if ((pin != board::servoS1 && pin != board::servoS2) ||
-      frequencyHz != config::servoPwmFrequencyHz ||
-      lower < absoluteMinPulseUs || lower > absoluteMaxPulseUs ||
-      upper < absoluteMinPulseUs || upper > absoluteMaxPulseUs ||
+      frequency != config::servoPwmFrequency ||
+      lower < absoluteMinPulse || lower > absoluteMaxPulse ||
+      upper < absoluteMinPulse || upper > absoluteMaxPulse ||
       lower == upper) {
     // 未标定升降端点时不启用舵机输出。
     return false;
@@ -42,31 +42,31 @@ bool ServoDriver::begin(uint8_t pin, uint32_t frequencyHz) {
 
   pinMode(pin, OUTPUT);
   digitalWrite(pin, LOW);
-  if (ledcSetup(servoPwmChannel, frequencyHz, servoPwmResolutionBits) == 0) {
+  if (ledcSetup(servoPwmChannel, frequency, servoPwmResolution) == 0) {
     return false;
   }
   ledcWrite(servoPwmChannel, 0);
   ledcAttachPin(pin, servoPwmChannel);
   pin_ = pin;
-  frequencyHz_ = frequencyHz;
+  frequency_ = frequency;
   initialized_ = true;
   return true;
 }
 
-void ServoDriver::writePulseUs(uint16_t pulseUs) {
+void ServoDriver::writePulse(uint16_t pulse) {
   if (!initialized_) {
     return;
   }
-  const uint16_t lower = config::liftLoweredPulseUs;
-  const uint16_t upper = config::liftRaisedPulseUs;
+  const uint16_t lower = config::liftLoweredPulse;
+  const uint16_t upper = config::liftRaisedPulse;
   const uint16_t minimum = lower < upper ? lower : upper;
   const uint16_t maximum = lower > upper ? lower : upper;
-  if (pulseUs < minimum) pulseUs = minimum;
-  if (pulseUs > maximum) pulseUs = maximum;
+  if (pulse < minimum) pulse = minimum;
+  if (pulse > maximum) pulse = maximum;
 
-  const uint64_t periodScale = 1ULL << servoPwmResolutionBits;
+  const uint64_t periodScale = 1ULL << servoPwmResolution;
   const uint32_t duty = static_cast<uint32_t>(
-      (static_cast<uint64_t>(pulseUs) * frequencyHz_ * periodScale) /
+      (static_cast<uint64_t>(pulse) * frequency_ * periodScale) /
       1000000ULL);
   ledcWrite(servoPwmChannel, duty);
 }

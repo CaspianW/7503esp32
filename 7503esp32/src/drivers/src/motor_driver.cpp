@@ -7,10 +7,10 @@
  * @copyright Copyright (c) 2026 Caspian Wu.
  */
 
-#include "motor_driver.h"
+#include "../include/motor_driver.h"
 
-#include "../config/board_pins.h"
-#include "../config/robot_config.h"
+#include "../../config/board_pins.h"
+#include "../../config/robot_config.h"
 
 #include <Arduino.h>
 #include <math.h>
@@ -18,8 +18,8 @@
 namespace robot {
 namespace {
 
-constexpr uint8_t pwmResolutionBits = 10;
-constexpr uint32_t pwmMaxDuty = (1U << pwmResolutionBits) - 1U;
+constexpr uint8_t pwmResolution = 10; // 单位 bit
+constexpr uint32_t pwmMaxDuty = (1U << pwmResolution) - 1U;
 
 } // 匿名命名空间结束
 
@@ -41,7 +41,7 @@ bool MotorDriver::begin() {
   // 每个电机共用一路 PWM，按转向把该通道切换到 A 或 B 引脚。
   // ESP32-S3 只有 8 路 LEDC，预留通道 4 给舵机。
   for (uint8_t i = 0; i < wheelCount; ++i) {
-    if (ledcSetup(i, config::motorPwmFrequencyHz, pwmResolutionBits) == 0) {
+    if (ledcSetup(i, config::motorPwmFrequency, pwmResolution) == 0) {
       return false;
     }
     ledcWrite(i, 0);

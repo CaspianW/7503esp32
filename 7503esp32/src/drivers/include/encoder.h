@@ -9,7 +9,7 @@
 
 #pragma once
 
-#include "../common/robot_types.h"
+#include "../../common/robot_types.h"
 
 namespace robot {
 
