@@ -41,6 +41,8 @@ constexpr uint8_t servoS2 = 21;
 constexpr uint8_t batterySense = 3;
 constexpr uint8_t buzzer = 46;
 constexpr uint8_t statusLed = 45;
+// MCU 蓝灯的点亮电平尚未实测；若上板后亮灭相反，改为 true。
+constexpr bool statusLedActiveLow = false;
 
 // 控制板的 Type-C 串口使用 UART0：RX=GPIO43，TX=GPIO44。
 // 机器人运行时，此串口留给 micro-ROS agent 连接使用。

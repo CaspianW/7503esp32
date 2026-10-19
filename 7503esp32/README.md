@@ -3,6 +3,12 @@
 在 Arduino IDE 中打开 `7503esp32.ino`。草图的 `setup()` 和 `loop()`
 由 `RobotController` 负责组织；具体实现位于 `src/`，Arduino 构建系统会递归编译其中的源文件。
 
+控制板上的红色电源灯不受固件控制。MCU 蓝色指示灯使用 GPIO45：初始化时关闭，
+程序进入 `loop()` 后保持常亮，不依赖电机台架测试是否启用。
+目前暂按高电平点亮；如果上板后蓝灯亮灭相反，将
+`src/config/board_pins.h` 中的 `statusLedActiveLow` 改为 `true`。
+常亮只说明程序至少进入过主循环，不能单独证明之后没有卡死或所有外设正常。
+
 | 目录 | 职责 | 主要文件 |
 | --- | --- | --- |
 | `src/config/` | 开发板引脚、需要测量或调参的机器人参数 | `board_pins.h`、`robot_config.h` |
