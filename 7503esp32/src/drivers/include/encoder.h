@@ -16,13 +16,13 @@ namespace robot {
 class Encoder {
 public:
   bool begin();
-  int32_t readTicks(WheelId wheel);
-  void readAllTicks(int32_t ticks[wheelCount]);
+  int64_t readTicks(WheelId wheel);
+  void readAllTicks(int64_t ticks[wheelCount]);
   void resetAll();
 
 private:
   bool initialized_ = false;
-  int32_t accumulatedTicks_[wheelCount] = {};
+  int64_t accumulatedTicks_[wheelCount] = {};
 };
 
 } // robot 命名空间结束

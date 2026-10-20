@@ -23,10 +23,10 @@ public:
   bool commandTimedOut() const;
 
 private:
-  uint32_t lastCommand_; // 单位 ms
-  bool hasCommand_;
-  bool emergencyStop_;
-  bool commandTimedOut_;
+  uint32_t lastCommand_ = 0; // 单位 ms
+  bool hasCommand_ = false;
+  bool emergencyStop_ = false;
+  bool commandTimedOut_ = true;
 };
 
 } // robot 命名空间结束

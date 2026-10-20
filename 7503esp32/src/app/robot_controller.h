@@ -42,6 +42,12 @@ class RobotController {
 public:
   bool begin();
   void update();
+  // 仅在上层验证速度指令后调用；timestamp 单位 ms，不直接驱动电机。
+  void noteCmdVel(uint32_t timestamp);
+  // 软件急停入口；触发时立即停机，解除后仍需新的速度指令。
+  // 急停后同一实例不能再次 begin()，以免重启台架测试。
+  void setEmergencyStop(bool active);
+  bool motionAllowed() const;
 
 private:
   MotorDriver motorDriver_;
@@ -55,7 +61,9 @@ private:
   RosBridge rosBridge_;
   Safety safety_;
 
-  bool initialized_;
+  bool initialized_ = false;
+  bool benchMode_ = false;
+  bool stopLatched_ = false;
   uint32_t motorBenchStart_ = 0; // 单位 ms
 };
 

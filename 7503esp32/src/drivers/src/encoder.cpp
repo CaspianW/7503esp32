@@ -67,27 +67,27 @@ bool Encoder::begin() {
   return true;
 }
 
-int32_t Encoder::readTicks(WheelId wheel) {
+int64_t Encoder::readTicks(WheelId wheel) {
   const uint8_t index = static_cast<uint8_t>(wheel);
   if (!initialized_ || index >= wheelCount) {
     return 0;
   }
   const pcnt_unit_t unit = static_cast<pcnt_unit_t>(index);
   int16_t delta = 0;
-  // PCNT 计数器只有 16 位；每个控制周期读取并清零，软件累加为 32 位。
+  // PCNT 计数器只有 16 位；每个控制周期读取并清零，软件累加为 64 位。
   // 调用间隔必须足够短，避免计数达到硬件上下限。
   if (pcnt_counter_pause(unit) == ESP_OK) {
     if (pcnt_get_counter_value(unit, &delta) == ESP_OK &&
         pcnt_counter_clear(unit) == ESP_OK) {
       accumulatedTicks_[index] +=
-          static_cast<int32_t>(delta) * config::encoderDirection[index];
+          static_cast<int64_t>(delta) * config::encoderDirection[index];
     }
     pcnt_counter_resume(unit);
   }
   return accumulatedTicks_[index];
 }
 
-void Encoder::readAllTicks(int32_t ticks[wheelCount]) {
+void Encoder::readAllTicks(int64_t ticks[wheelCount]) {
   if (ticks == nullptr) {
     return;
   }
