@@ -2,7 +2,7 @@
  * @file encoder_count_test.cpp
  * @brief Host tests for long-running encoder accumulation.
  * @author Caspian Wu
- * @date 2026-10-20
+ * @date 2026-10-22
  * @version 0.1.0
  * @copyright Copyright (c) 2026 Caspian Wu.
  */
@@ -13,7 +13,7 @@
 
 #include <cassert>
 
-int16_t fakePcnt[4] = {};
+
 
 int main() {
   robot::Encoder encoder;
@@ -36,4 +36,10 @@ int main() {
 
   encoder.resetAll();
   assert(encoder.readTicks(robot::frontLeft) == 0);
+  fakePcntFailure = 1;
+  assert(!encoder.readAllTicks(ticks));
+  assert(!encoder.healthy());
+  fakePcntFailure = 0;
+  assert(!encoder.readAllTicks(ticks)); // 读取错误锁存，不能伪装为零轮速
+
 }

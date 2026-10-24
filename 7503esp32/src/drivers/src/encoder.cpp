@@ -2,7 +2,7 @@
  * @file encoder.cpp
  * @brief Four-channel quadrature encoder driver.
  * @author Caspian Wu
- * @date 2026-09-28
+ * @date 2026-10-22
  * @version 0.1.0
  * @copyright Copyright (c) 2026 Caspian Wu.
  */
@@ -45,7 +45,10 @@ bool Encoder::begin() {
     return true;
   }
 
+  healthy_ = false;
   for (uint8_t i = 0; i < wheelCount; ++i) {
+    if (config::encoderDirection[i] != 1 && config::encoderDirection[i] != -1)
+      return false;
     const board::MotorPins &pins = board::motorPins[i];
     pinMode(pins.encoderA, INPUT_PULLUP);
     pinMode(pins.encoderB, INPUT_PULLUP);
@@ -63,6 +66,7 @@ bool Encoder::begin() {
     }
     accumulatedTicks_[i] = 0;
   }
+  healthy_ = true;
   initialized_ = true;
   return true;
 }
@@ -76,24 +80,32 @@ int64_t Encoder::readTicks(WheelId wheel) {
   int16_t delta = 0;
   // PCNT 计数器只有 16 位；每个控制周期读取并清零，软件累加为 64 位。
   // 调用间隔必须足够短，避免计数达到硬件上下限。
-  if (pcnt_counter_pause(unit) == ESP_OK) {
-    if (pcnt_get_counter_value(unit, &delta) == ESP_OK &&
-        pcnt_counter_clear(unit) == ESP_OK) {
-      accumulatedTicks_[index] +=
-          static_cast<int64_t>(delta) * config::encoderDirection[index];
-    }
-    pcnt_counter_resume(unit);
+  if (!healthy_) return accumulatedTicks_[index];
+  const bool paused = pcnt_counter_pause(unit) == ESP_OK;
+  const bool read = paused && pcnt_get_counter_value(unit, &delta) == ESP_OK;
+  const bool cleared = read && pcnt_counter_clear(unit) == ESP_OK;
+  const bool resumed = pcnt_counter_resume(unit) == ESP_OK;
+  if (!paused || !read || !cleared || !resumed ||
+      delta >= counterLimit || delta <= -counterLimit) {
+    healthy_ = false;
+    return accumulatedTicks_[index];
   }
+  const int64_t step = static_cast<int64_t>(delta) * config::encoderDirection[index];
+  if ((step > 0 && accumulatedTicks_[index] > INT64_MAX - step) ||
+      (step < 0 && accumulatedTicks_[index] < INT64_MIN - step)) {
+    healthy_ = false;
+    return accumulatedTicks_[index];
+  }
+  accumulatedTicks_[index] += step;
   return accumulatedTicks_[index];
 }
 
-void Encoder::readAllTicks(int64_t ticks[wheelCount]) {
-  if (ticks == nullptr) {
-    return;
-  }
+bool Encoder::readAllTicks(int64_t ticks[wheelCount]) {
+  if (ticks == nullptr) return false;
   for (uint8_t i = 0; i < wheelCount; ++i) {
     ticks[i] = readTicks(static_cast<WheelId>(i));
   }
+  return healthy();
 }
 
 void Encoder::resetAll() {
@@ -101,9 +113,9 @@ void Encoder::resetAll() {
     accumulatedTicks_[i] = 0;
     if (initialized_) {
       const pcnt_unit_t unit = static_cast<pcnt_unit_t>(i);
-      pcnt_counter_pause(unit);
-      pcnt_counter_clear(unit);
-      pcnt_counter_resume(unit);
+      if (pcnt_counter_pause(unit) != ESP_OK ||
+          pcnt_counter_clear(unit) != ESP_OK ||
+          pcnt_counter_resume(unit) != ESP_OK) healthy_ = false;
     }
   }
 }

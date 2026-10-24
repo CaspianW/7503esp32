@@ -1,108 +1,76 @@
-# 7503 ESP32 固件框架
+# 7503 ESP32-S3 智能小车固件
 
-在 Arduino IDE 中打开 `7503esp32.ino`。草图的 `setup()` 和 `loop()`
-由 `RobotController` 负责组织；具体实现位于 `src/`，Arduino 构建系统会递归编译其中的源文件。
+在 Arduino IDE 中打开本目录的 `7503esp32.ino`。开发板选择 **ESP32S3 Dev Module**，
+ESP32开发板包固定 **2.0.17**，通过库管理器安装TDK的 **ICM42670P 1.0.9**。
+使用板上的UART0 USB转串口接口，关闭USB CDC On Boot；本次验证配置为4MB Flash、PSRAM禁用。
+烧录前确认实际板型及Flash配置，不要直接升级到Arduino-ESP32 3.x，LEDC/PCNT接口不同。
 
-控制板上的红色电源灯不受固件控制。MCU 蓝色指示灯使用 GPIO45：初始化时关闭，
-程序进入 `loop()` 后保持常亮，不依赖电机台架测试是否启用。
-目前暂按高电平点亮；如果上板后蓝灯亮灭相反，将
-`src/config/board_pins.h` 中的 `statusLedActiveLow` 改为 `true`。
-常亮只说明程序至少进入过主循环，不能单独证明之后没有卡死或所有外设正常。
+## 目录
 
-| 目录 | 职责 | 主要文件 |
-| --- | --- | --- |
-| `src/config/` | 开发板引脚、需要测量或调参的机器人参数 | `board_pins.h`、`robot_config.h` |
-| `src/common/` | 各模块共用的数据类型和车轮顺序 | `robot_types.h` |
-| `src/drivers/include/`、`src/drivers/src/` | 硬件驱动的头文件、源文件分别存放 | 电机驱动、编码器、IMU、舵机 PWM |
-| `src/control/include/`、`src/control/src/` | 控制模块的头文件、源文件分别存放 | 通用 PID、四轮速度控制、麦克纳姆轮解算、里程计、升降控制 |
-| `src/communication/` | 与树莓派通信的 USB 串口 micro-ROS 接口 | `ros_bridge.h/.cpp` |
-| `src/app/` | 初始化、周期调度和运动安全 | 机器人控制器、安全逻辑 |
+- `src/config`：板卡引脚、轮位映射、尺寸、PID、速度上限及输出开关。
+- `src/drivers`：电机PWM、PCNT编码器、ICM42670P与升降舵机。
+- `src/control`：麦克纳姆解算、测速、四轮PID、里程计与升降端点控制。
+- `src/app`：100Hz调度、使能、超时、急停与故障处理。
+- `src/communication`：115200 baud ASCII串口指令及10Hz状态回传；原生micro-ROS接口仍未实现。
+- `tests`：在电脑上运行的C++硬件边界与逻辑测试，不参与Arduino固件构建。
 
-预期的底盘控制链路是：`cmd_vel` → 应用层 → 麦克纳姆轮逆运动学 → 四轮速度控制（调用通用 PID）→ 电机驱动。
-编码器计数用于车轮速度闭环和里程计；IMU 提供角速度测量。通信模块向树莓派发布里程计和 IMU 数据。
-升降链路是：升降目标 → 升降控制 → 舵机驱动。配发的 MG996 舵机没有向 ESP32 提供位置反馈，
-因此 `src/config/robot_config.h` 中保存的是待实车标定的最低／最高控制脉宽，不是编码器值。
+## 上电与标定
 
-目前通用 PID、四轮速度控制、编码器计数到轮速换算、麦克纳姆轮正逆解算和独立里程计积分已经实现，
-但尚未接入整车调度。`RobotController::begin()` 默认进入正常模式，初始化电机驱动后立即停机；
-主循环会检查速度指令是否超过 500 ms 未更新，但在编码器闭环和通信接入前始终保持停机。
-`noteCmdVel()` 目前只记录已验证指令的接收时间，不解析速度，也不会让电机转动。
-里程计接口接收车体坐标系速度与已映射到 ROS `base_link` 的 IMU Z 轴角速度；
-使用时间段中点朝向积分位置，航向归一化至 [-π, π)，输出速度仍在车体坐标系。
-不合法或会导致积分溢出的输入不会更新状态。它尚未接入编码器、IMU、调度器或 ROS 发布，
-因此现在没有可用于导航的实时 `/odom` 数据。
-`WheelSpeed` 接收 `Encoder::readAllTicks()` 返回的四路 64 位累计计数和 `micros()` 时间戳，
-根据轮半径及每转计数换算 m/s；
-第一帧仅建立基准，时间间隔无效或计算溢出时返回失败并清零输出。
-调用 `Encoder::resetAll()` 后也须调用 `WheelSpeed::reset()`，否则计数跳变会造成错误速度。
-`encoderCounts = 1040` 目前仅为标称值，实车需核对四倍频计数和轮径；测速模块尚未接入整车调度。
-编码器软件累计值已改为 `int64_t`，跨越原 32 位上限不会造成计数回绕；测速器仍会拒绝
-单次采样间隔内超过 32 位范围的异常计数增量。PCNT 硬件计数器只有 16 位，仍须按控制周期
-读取并清零，避免在读取前触及硬件计数上限。
-显式启用下述台架测试时，控制器才会进入一次性电机测试模式。
-麦克纳姆解算采用 X 形滚轮和车轮圆周线速度（m/s）；这层只需轴距与轮距，
-轮半径用于之后的编码器计数与车轮速度换算。滚轮安装和各电机正方向仍须在实车上核对。
-启用运动控制前，需要完成并验证驱动、底盘控制链路和 micro-ROS 通信，并测量或整定
-`src/config/robot_config.h` 中的轴距、轮距、速度上限及 PID 参数。
-升降端点脉宽当前均为零，升降控制仍为占位；舵机驱动会在端点未标定时拒绝启用。确认机构限位与供电前不要配置端点或启用升降。
+默认 `motorOutputsEnabled`、`motorBenchEnabled`、`chassisControlEnabled`、
+`wheelMappingConfirmed`、`liftOutputsEnabled` 均为false，上电不产生运动命令。
+轴距、轮距、整车速度上限和PID增益仍为0，必须实车标定，不代表已经可直接行驶。
 
-目录划分参考了 Infantry RM STM32 项目中“设备、算法、应用”分层的思路。
-Arduino-ESP32 已提供 GPIO、I2C、串口、PWM 和 FreeRTOS 支持，因此这里不需要移植 STM32 HAL 或整套中间件。
+逻辑轮序为左前FL、左后RL、右前FR、右后RR。`wheelChannel` 把逻辑轮映射到电气M1～M4的0～3；
+`motorDirection`、`encoderDirection` 按电气通道排列，填写+1或-1。
+轮径0.065m和每输出轴转1040计数只是当前标称值，需核实AB四倍频和减速比。
 
-## 驱动层当前状态
+单电机台架：同时启用 `motorOutputsEnabled` 和 `motorBenchEnabled`，关闭整车闭环开关。
+上电等待至少2秒，所选 `motorBenchChannel` 以绝对值不超过0.2的占空比运行不超过500ms，然后停机。
+每次上电只运行一次，stop或急停终止后不再续转。测试前保持车轮悬空。
 
-使用 Arduino IDE 的 ESP32 开发板包 2.0.17，并通过库管理器安装 TDK/Invensense 的
-`ICM42670P` 库 1.0.9。电机使用 LEDC 通道 0～3，每个电机按方向切换 PWM 到 A/B 引脚；
-舵机使用通道 4。编码器使用 ESP32-S3 的四个 PCNT 单元进行 AB 相四倍频计数。
-IMU 通过 GPIO40/39 的 I2C 读取，并自动检测 0x68/0x69 地址。
+闭环底盘：关闭台架，完成方向和轮位确认，填写实际尺寸、速度上限和PID，才可启用整车开关。
+命令超过500ms未刷新会停机并解除使能；超过50ms的调度间隔、编码器读取错误或异常反馈会锁定故障。
+故障需排除原因后复位，急停解除也不会自动恢复运动。
 
-目前 `motorOutputsEnabled` 为 `false`，非零电机命令也不会输出；升降脉宽端点为零，
-舵机驱动初始化会拒绝启用。实车装配后须逐轮确认电机和编码器方向、校准舵机端点，
-再修改这些安全配置。`stopAll()` 当前只保证两路输入为低，不提供尚未核实的主动制动。
-IMU 读数已转换为国际单位，但仍处于芯片坐标系；确定控制板安装朝向后，才能映射到 ROS 的 `base_link`。
-正常模式会初始化电机驱动并持续保持停机；仅下述台架测试会产生非零电机输出。
+升降默认使用 **S1/GPIO8**，`liftServoChannel=0`；选择1时使用S2/GPIO21。
+填写已标定的 `liftLoweredPulse`、`liftRaisedPulse`，两者须在500～2500µs内且不同，再启用 `liftOutputsEnabled`。
+升降可以独立于底盘使能。停止升降PWM可能释放保持力，不保证带载悬停；没有高度反馈。
 
-## 指令超时与急停
+## 串口指令
 
-安全模块上电时不允许运动；收到有效速度指令后，若 500 ms 内没有新指令，运动许可失效。
-时间比较使用无符号差值，兼容 `millis()` 回绕。急停触发后会丢弃旧指令，解除急停也需要新指令才能恢复许可。
-`RobotController::setEmergencyStop(true)` 会立即清零电机输出；台架测试被急停后不会自动续转，
-同一控制器实例再次调用 `begin()` 也会被拒绝。正常模式解除急停后仍需新的速度指令。
-这只是软件入口，目前尚无物理急停输入或 micro-ROS 急停消息接入，不能代替断开电机电源。
-当前尚未实现 micro-ROS 接收和车轮闭环，因此这些规则只完成了底层逻辑与正常主循环接入，
-不表示小车已经能响应 `/cmd_vel` 行驶。
+UART0，115200，8N1，ASCII，每条指令以换行结束；单行最多95字符。
 
-## 单电机台架测试
+| 指令 | 行为 |
+| --- | --- |
+| `status` | 请求状态及测量 |
+| `arm` | 配置有效时使能底盘，清除旧速度 |
+| `vel vx vy wz` | 车体速度：m/s、m/s、rad/s，x向前、y向左、逆时针为正；零速度立即停底盘 |
+| `stop` | 停底盘、关闭升降PWM并解除两者使能 |
+| `estop 1` / `estop 0` | 急停 / 请求解除急停；解除后仍需新使能和目标 |
+| `lift arm` | 使能升降，本身不输出位置脉冲 |
+| `lift up` / `lift down` | 请求已标定的抬升 / 下降端点 |
+| `lift keep` | 刷新独立的升降心跳，不延长底盘速度有效期 |
+| `lift stop` | 关闭升降PWM并解除升降使能 |
 
-在 Arduino IDE 中修改 `src/config/robot_config.h`：确认电机和供电接线后，将
-`motorOutputsEnabled`、`motorBenchEnabled` **同时**改为 `true`。`motorBenchChannel`
-取 0～3，分别表示控制板电气接口 M1～M4，**不代表**前左、后左等车轮位置；
-`motorBenchDuty` 默认 0.15，程序仅接受大于 0 且不超过 0.2 的值。默认上电两个开关均为 `false`，不会驱动电机。
+成功回复 `OK`，拒绝回复 `ERR command_or_state`，无效帧回复 `ERR frame`。
+升降使能后需持续发送新目标或 `lift keep`，500ms无心跳会关闭PWM；恢复心跳不会自动重启。
 
-测试流程为：初始化时全部停机；等待 2 秒；仅让所选通道转动 0.5 秒；随后全部停机，
-本次上电不再重复。无需树莓派、micro-ROS、编码器、IMU 或整车底盘。
-首次测试应让电机／车轮悬空、远离传动机构和手指，并备好独立断电手段；
-若程序在转动期间失去调度，软件定时停机无法代替硬件断电。确认完成后将两个开关恢复为 `false`。
-电机正反方向、M1～M4 与实际车轮的对应关系仍需逐个实测。
+每100ms回传五行：
 
-电脑上可运行 `g++ -std=c++17 -Wall -Wextra -Werror -I7503esp32/tests/fakes 7503esp32/tests/motor_bench_test.cpp -o /tmp/7503-motor-bench-test && /tmp/7503-motor-bench-test` 检查定时状态逻辑；
-该测试不验证实际电机、电源或接线。
-
-## 源代码文件头规范
-
-新增或修改 `.ino`、`.h`、`.cpp` 文件时，统一使用 Doxygen 文档块作为文件头，`@brief` 使用英文。固定填写 `@file`、`@brief`、`@author`、`@date`、`@version` 和 `@copyright`；作者为 `Caspian Wu`，日期采用 `YYYY-MM-DD`。摘要必须如实描述当前实现；未实现的功能应在英文摘要中标注为 `placeholder`。当前文件头版本统一为 `0.1.0`；许可证尚未确定前不添加 SPDX 标识。新代码请遵循本目录 `AGENTS.md` 中的模板。
-
-```cpp
-/**
- * @file 文件名.cpp
- * @brief Briefly describe the responsibility of this file.
- * @author Caspian Wu
- * @date YYYY-MM-DD
- * @version 0.1.0
- * @copyright Copyright (c) 2026 Caspian Wu.
- */
+```text
+S uptime initialized armed allowed estop fault encoder imu speed bench outputs chassis
+E ticksM1 ticksM2 ticksM3 ticksM4 speedFL speedRL speedFR speedRR dutyFL dutyRL dutyFR dutyRR
+O timestamp x y yaw vx vy wz
+I timestamp ax ay az gx gy gz temperature
+L enabled configured armed active target pulse
 ```
 
-## 代码变量命名规范
+时间为MCU毫秒，不是ROS时间；计数为64位累计值，轮速m/s、位置m、角度rad、加速度m/s²、角速度rad/s。
+升降target是指令目标：0=下降、1=抬升、2=未知/无输出，pulse单位µs，不是实测位置。
+故障码：0正常、1配置、2电机PWM、3编码器、4调度超时、5反馈、6IMU、7升降初始化。
 
-函数、变量、参数和配置项采用小驼峰，类型采用大驼峰，私有成员在末尾加 `_`；常量不加 `k` 前缀。名称优先简短、清楚，例如 `param`、`err`、`prevErr`、`dt`、`out`、`vx`，避免重复当前上下文。变量名不带 `M`、`Mps`、`Rad`、`Ms`、`Us`、`Hz` 等单位后缀；单位直接写在声明处的注释中。除循环索引和坐标轴外，不使用难懂的单字母变量。源文件名使用小写下划线，例如 `motor_driver.cpp`。
+## 验证范围
+
+默认诊断和底盘/升降同时启用的临时测试配置均已通过ESP32-S3交叉编译；19组C++逻辑及硬件边界测试通过。
+尚未实车验证轮位、计数精度、PID、供电、IMU坐标和升降限位。IMU数据仍为芯片坐标，默认里程计航向使用轮速。
+PCNT读取清零存在暂停计数窗口；软件停机依赖调度，主循环完全卡死时仍需独立断电手段。

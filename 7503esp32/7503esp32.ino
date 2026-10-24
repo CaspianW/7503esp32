@@ -1,8 +1,8 @@
 /**
  * @file 7503esp32.ino
- * @brief Arduino robot-control sketch and MCU status LED entry point.
+ * @brief Safe robot startup, commissioning serial console and fault status LED.
  * @author Caspian Wu
- * @date 2026-09-28
+ * @date 2026-10-22
  * @version 0.1.0
  * @copyright Copyright (c) 2026 Caspian Wu.
  */
@@ -10,25 +10,29 @@
 #include <Arduino.h>
 
 #include "src/app/robot_controller.h"
+#include "src/communication/serial_console.h"
 #include "src/config/board_pins.h"
 
 robot::RobotController robotController;
-bool robotControllerReady = false;
+robot::SerialConsole console;
 
 void setup() {
-  // 上电初始化阶段先熄灭 MCU 蓝灯；红色电源灯不由软件控制。
   digitalWrite(robot::board::statusLed,
                robot::board::statusLedActiveLow ? HIGH : LOW);
   pinMode(robot::board::statusLed, OUTPUT);
-  // USB 串口将用于 micro-ROS 通信；启用后不要再向该串口输出调试文本。
-  robotControllerReady = robotController.begin();
+  console.begin();
+  robotController.begin();
 }
 
 void loop() {
-  // 进入主循环后常亮，与电机台架测试是否启用无关。
+  // 先执行安全检查和控制，再处理有字节预算的串口输入。
+  robotController.update();
+  console.update(robotController);
+  // 健康时常亮，初始化失败/锁定故障时 2Hz 闪烁，状态可由串口定位。
+  const bool healthy = robotController.initialized() &&
+    robotController.fault() == robot::RobotFault::none;
+  const bool on = healthy || (millis() / 250) % 2 == 0;
   digitalWrite(robot::board::statusLed,
-               robot::board::statusLedActiveLow ? LOW : HIGH);
-  if (robotControllerReady) {
-    robotController.update();
-  }
+    (on != robot::board::statusLedActiveLow) ? HIGH : LOW);
+  delay(1); // 让出 CPU，控制周期仍由 micros() 调度
 }

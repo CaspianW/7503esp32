@@ -2,7 +2,7 @@
  * @file safety.h
  * @brief Robot safety management interface.
  * @author Caspian Wu
- * @date 2026-09-28
+ * @date 2026-10-22
  * @version 0.1.0
  * @copyright Copyright (c) 2026 Caspian Wu.
  */
@@ -16,6 +16,7 @@ namespace robot {
 class Safety {
 public:
   void begin();
+  void invalidateCommand();
   void noteVelocityCommand(uint32_t timestamp); // 单位 ms
   void setEmergencyStop(bool active);
   void update(uint32_t now); // 单位 ms

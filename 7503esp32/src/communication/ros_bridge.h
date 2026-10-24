@@ -1,8 +1,8 @@
 /**
  * @file ros_bridge.h
- * @brief ESP32-to-Raspberry Pi micro-ROS interface.
+ * @brief Native micro-ROS interface placeholder; unavailable in the commissioning build.
  * @author Caspian Wu
- * @date 2026-09-28
+ * @date 2026-10-22
  * @version 0.1.0
  * @copyright Copyright (c) 2026 Caspian Wu.
  */

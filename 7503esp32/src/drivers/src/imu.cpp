@@ -2,7 +2,7 @@
  * @file imu.cpp
  * @brief ICM-42670-P IMU driver.
  * @author Caspian Wu
- * @date 2026-09-28
+ * @date 2026-10-22
  * @version 0.1.0
  * @copyright Copyright (c) 2026 Caspian Wu.
  */
@@ -53,6 +53,7 @@ bool Imu::begin() {
     sensor_ = nullptr;
     return false;
   }
+  Wire.setTimeOut(3); // 单次 I2C 事务超时，单位 ms
   delay(100);
   initialized_ = true;
   return true;

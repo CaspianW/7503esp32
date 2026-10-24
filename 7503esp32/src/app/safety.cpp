@@ -2,7 +2,7 @@
  * @file safety.cpp
  * @brief Command-timeout and emergency-stop logic.
  * @author Caspian Wu
- * @date 2026-09-28
+ * @date 2026-10-22
  * @version 0.1.0
  * @copyright Copyright (c) 2026 Caspian Wu.
  */
@@ -17,6 +17,11 @@ void Safety::begin() {
   lastCommand_ = 0;
   hasCommand_ = false;
   emergencyStop_ = false;
+  commandTimedOut_ = true;
+}
+
+void Safety::invalidateCommand() {
+  hasCommand_ = false;
   commandTimedOut_ = true;
 }
 

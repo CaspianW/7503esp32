@@ -2,7 +2,7 @@
  * @file motor_driver.cpp
  * @brief Four-channel motor driver.
  * @author Caspian Wu
- * @date 2026-09-28
+ * @date 2026-10-22
  * @version 0.1.0
  * @copyright Copyright (c) 2026 Caspian Wu.
  */
@@ -26,6 +26,13 @@ constexpr uint32_t pwmMaxDuty = (1U << pwmResolution) - 1U;
 bool MotorDriver::begin() {
   if (initialized_) {
     return true;
+  }
+
+  if (!isfinite(config::motorDutyLimit) || config::motorDutyLimit <= 0.0f ||
+      config::motorDutyLimit > 1.0f) return false;
+  for (uint8_t i = 0; i < wheelCount; ++i) {
+    if (config::motorDirection[i] != 1 && config::motorDirection[i] != -1)
+      return false;
   }
 
   // 先将 H 桥两路输入拉低，再配置 PWM；启动时绝不产生运动命令。
@@ -61,14 +68,20 @@ void MotorDriver::setDuty(WheelId wheel, float signedDuty) {
   }
   const int8_t direction = config::motorDirection[index];
   signedDuty *= direction;
-  if (signedDuty > 1.0f) signedDuty = 1.0f;
-  if (signedDuty < -1.0f) signedDuty = -1.0f;
+  if (signedDuty > config::motorDutyLimit) signedDuty = config::motorDutyLimit;
+  if (signedDuty < -config::motorDutyLimit) signedDuty = -config::motorDutyLimit;
 
   const board::MotorPins &pins = board::motorPins[index];
   // Yahboom 示例把 MxB 作为正向 PWM、MxA 作为反向 PWM。
   const int8_t desiredPin = signedDuty > 0.0f ? pins.pwmB : pins.pwmA;
   if (signedDuty == 0.0f) {
     ledcWrite(index, 0);
+    if (activePin_[index] >= 0) {
+      ledcDetachPin(activePin_[index]);
+      activePin_[index] = -1;
+    }
+    digitalWrite(pins.pwmA, LOW);
+    digitalWrite(pins.pwmB, LOW);
     return;
   }
 

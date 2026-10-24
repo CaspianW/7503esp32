@@ -2,7 +2,7 @@
  * @file board_pins.h
  * @brief Yahboom control board pin assignments.
  * @author Caspian Wu
- * @date 2026-09-28
+ * @date 2026-10-22
  * @version 0.1.0
  * @copyright Copyright (c) 2026 Caspian Wu.
  */
@@ -44,7 +44,7 @@ constexpr uint8_t statusLed = 45;
 // MCU 蓝灯的点亮电平尚未实测；若上板后亮灭相反，改为 true。
 constexpr bool statusLedActiveLow = false;
 
-// 控制板的 Type-C 串口使用 UART0：RX=GPIO43，TX=GPIO44。
+// 控制板的 Type-C 串口使用 UART0：TX=GPIO43，RX=GPIO44。
 // 机器人运行时，此串口留给 micro-ROS agent 连接使用。
 
 } // board 命名空间结束

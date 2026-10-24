@@ -2,7 +2,7 @@
  * @file servo_driver.h
  * @brief Low-level lift servo motor driver interface.
  * @author Caspian Wu
- * @date 2026-09-28
+ * @date 2026-10-22
  * @version 0.1.0
  * @copyright Copyright (c) 2026 Caspian Wu.
  */
@@ -23,6 +23,8 @@ public:
 private:
   bool initialized_ = false;
   uint8_t pin_ = 0;
+  uint16_t minimumPulse_ = 0; // 单位 µs
+  uint16_t maximumPulse_ = 0; // 单位 µs
   uint32_t frequency_ = 0; // 单位 Hz
 };
 

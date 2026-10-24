@@ -2,7 +2,7 @@
  * @file pcnt.h
  * @brief Minimal PCNT boundary for host-side encoder tests.
  * @author Caspian Wu
- * @date 2026-10-20
+ * @date 2026-10-22
  * @version 0.1.0
  * @copyright Copyright (c) 2026 Caspian Wu.
  */
@@ -36,6 +36,7 @@ struct pcnt_config_t {
 };
 
 extern int16_t fakePcnt[4];
+extern int fakePcntFailure;
 
 inline int pcnt_unit_config(const pcnt_config_t *) { return ESP_OK; }
 inline int pcnt_set_filter_value(pcnt_unit_t, uint16_t) { return ESP_OK; }
@@ -47,6 +48,7 @@ inline int pcnt_counter_clear(pcnt_unit_t unit) {
   return ESP_OK;
 }
 inline int pcnt_get_counter_value(pcnt_unit_t unit, int16_t *value) {
+  if (fakePcntFailure) return -1;
   *value = fakePcnt[unit];
   return ESP_OK;
 }

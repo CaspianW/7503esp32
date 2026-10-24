@@ -1,0 +1,26 @@
+/**
+ * @file serial_protocol.h
+ * @brief Strict bounded ASCII commissioning command parser.
+ * @author Caspian Wu
+ * @date 2026-10-22
+ * @version 0.1.0
+ * @copyright Copyright (c) 2026 Caspian Wu.
+ */
+
+#pragma once
+
+#include "../common/robot_types.h"
+#include <stddef.h>
+
+namespace robot {
+enum class CommandKind { invalid, status, arm, stop, emergencyStop, velocity,
+                         liftArm, liftStop, liftKeep, liftTarget };
+struct SerialCommand {
+  CommandKind kind = CommandKind::invalid;
+  Twist2D velocity{};
+  bool active = false;
+  LiftPosition lift = LiftPosition::lowered;
+};
+// 一行最多 95 个可见字符，只接受完整命令、有限数和指定数量的参数。
+SerialCommand parseSerialCommand(const char *line);
+} // namespace robot

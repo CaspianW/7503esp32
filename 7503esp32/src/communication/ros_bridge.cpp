@@ -1,13 +1,22 @@
 /**
  * @file ros_bridge.cpp
- * @brief micro-ROS communication bridge (placeholder).
+ * @brief Unavailable native micro-ROS adapter placeholder with explicit disconnected state.
  * @author Caspian Wu
- * @date 2026-09-28
+ * @date 2026-10-22
  * @version 0.1.0
  * @copyright Copyright (c) 2026 Caspian Wu.
  */
 
 #include "ros_bridge.h"
 
-// 验证 ESP32-S3 Arduino 库能够编译后，再添加 micro-ROS Jazzy 传输层、执行器、
-// cmd_vel 订阅以及里程计和 IMU 发布功能。
+// 当前固件默认运行 SerialConsole；该接口保留给后续原生 micro-ROS 适配。
+// 不伪造连接或导航数据。ROS 2 串口适配器位于 tools/ros_serial_bridge.py。
+namespace robot {
+bool RosBridge::begin() { return false; }
+void RosBridge::spinOnce() {}
+bool RosBridge::takeVelocityCommand(Twist2D &) { return false; }
+bool RosBridge::takeLiftCommand(LiftPosition &) { return false; }
+void RosBridge::publishOdometry(const OdometryState &) {}
+void RosBridge::publishImu(const ImuSample &) {}
+bool RosBridge::connected() const { return false; }
+} // namespace robot
