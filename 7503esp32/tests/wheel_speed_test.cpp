@@ -53,6 +53,19 @@ int main() {
   assert(wheelSpeed.update(ticks, 4000000, speed));
   assert(std::fabs(speed.value[0] - 0.062831853f) < 0.00001f);
 
+  // 用累计绝对计数的差值计算相对位移；1040 count 对应车轮一整圈。
+  robot::WheelSpeed oneTurn;
+  assert(oneTurn.configure(1040.0f, 0.0325f));
+  int64_t turnTicks[robot::wheelCount] = {0, 0, 0, 0};
+  assert(!oneTurn.update(turnTicks, 0, speed));
+  turnTicks[0] = 1040;
+  assert(oneTurn.update(turnTicks, 1000000, speed));
+  const float wheelCircumference = 2.0f * 3.14159265358979323846f * 0.0325f;
+  assert(std::fabs(speed.value[0] - wheelCircumference) < 0.00001f);
+  turnTicks[0] = 2080;
+  assert(oneTurn.update(turnTicks, 2000000, speed));
+  assert(std::fabs(speed.value[0] - wheelCircumference) < 0.00001f);
+
   // micros() 的无符号时间戳回绕不改变实际的采样间隔。
   robot::WheelSpeed wrapped;
   assert(wrapped.configure(1000.0f, 0.1f));

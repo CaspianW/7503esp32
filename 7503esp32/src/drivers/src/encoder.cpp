@@ -28,7 +28,7 @@ bool configureChannel(pcnt_unit_t unit, pcnt_channel_t channel,
   settings.ctrl_gpio_num = directionPin;
   settings.lctrl_mode = PCNT_MODE_KEEP;
   settings.hctrl_mode = PCNT_MODE_REVERSE;
-  // 与 Yahboom 示例一致：车轮正向旋转时累计计数为正。
+  // 配置正交计数的原始符号；各通道车轮正向由 encoderDirection 统一修正。
   settings.pos_mode = isChannelA ? PCNT_COUNT_DEC : PCNT_COUNT_INC;
   settings.neg_mode = isChannelA ? PCNT_COUNT_INC : PCNT_COUNT_DEC;
   settings.counter_h_lim = counterLimit;

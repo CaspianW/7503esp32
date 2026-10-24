@@ -14,6 +14,11 @@
 
 #include <Arduino.h>
 #include <math.h>
+#if defined(CONFIG_IDF_TARGET_ESP32S3)
+#include <driver/ledc.h>
+#include <soc/gpio_struct.h>
+#include <soc/ledc_struct.h>
+#endif
 
 namespace robot {
 namespace {
@@ -103,6 +108,26 @@ void MotorDriver::setAllDuty(const WheelValues &signedDuty) {
   for (uint8_t i = 0; i < wheelCount; ++i) {
     setDuty(static_cast<WheelId>(i), signedDuty.value[i]);
   }
+}
+
+PwmState MotorDriver::pwm(uint8_t channel) const {
+  PwmState state;
+  if (!initialized_ || channel >= wheelCount) return state;
+  state.pin = activePin_[channel];
+  state.duty = ledcRead(channel);
+  state.freq = ledcReadFreq(channel);
+#if defined(CONFIG_IDF_TARGET_ESP32S3)
+  const uint8_t timer = LEDC.channel_group[0].channel[channel].conf0.timer_sel;
+  state.freq = ledc_get_freq(LEDC_LOW_SPEED_MODE, static_cast<ledc_timer_t>(timer));
+  state.out = LEDC.channel_group[0].channel[channel].conf0.sig_out_en;
+  state.pause = LEDC.timer_group[0].timer[timer].conf.pause;
+  if (state.pin >= 0) {
+    state.route = GPIO.func_out_sel_cfg[state.pin].func_sel;
+    const uint32_t enabled = state.pin < 32 ? GPIO.enable : GPIO.enable1.val;
+    state.gpio = (enabled >> (state.pin % 32)) & 1U;
+  }
+#endif
+  return state;
 }
 
 void MotorDriver::stopAll(bool brake) {

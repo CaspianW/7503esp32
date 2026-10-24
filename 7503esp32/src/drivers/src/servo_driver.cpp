@@ -48,8 +48,6 @@ bool ServoDriver::begin(uint8_t pin, uint32_t frequency) {
   }
   ledcWrite(servoPwmChannel, 0);
   ledcAttachPin(pin, servoPwmChannel);
-  minimumPulse_ = lower < upper ? lower : upper;
-  maximumPulse_ = lower > upper ? lower : upper;
   pin_ = pin;
   frequency_ = frequency;
   initialized_ = true;
@@ -60,8 +58,8 @@ void ServoDriver::writePulse(uint16_t pulse) {
   if (!initialized_) {
     return;
   }
-  if (pulse < minimumPulse_) pulse = minimumPulse_;
-  if (pulse > maximumPulse_) pulse = maximumPulse_;
+  if (pulse < absoluteMinPulse) pulse = absoluteMinPulse;
+  if (pulse > absoluteMaxPulse) pulse = absoluteMaxPulse;
 
   const uint64_t periodScale = 1ULL << servoPwmResolution;
   const uint32_t duty = static_cast<uint32_t>(

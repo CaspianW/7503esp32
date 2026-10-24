@@ -1,6 +1,6 @@
 /**
  * @file serial_protocol.h
- * @brief Strict bounded ASCII commissioning command parser.
+ * @brief Strict ASCII command parser for chassis control and lift endpoint commands.
  * @author Caspian Wu
  * @date 2026-10-22
  * @version 0.1.0
@@ -14,10 +14,12 @@
 
 namespace robot {
 enum class CommandKind { invalid, status, arm, stop, emergencyStop, velocity,
-                         liftArm, liftStop, liftKeep, liftTarget };
+                         manualArm, manualStop, manualVelocity, manualDuty,
+                         liftStop, liftTarget };
 struct SerialCommand {
   CommandKind kind = CommandKind::invalid;
   Twist2D velocity{};
+  float duty = 0.0f;
   bool active = false;
   LiftPosition lift = LiftPosition::lowered;
 };

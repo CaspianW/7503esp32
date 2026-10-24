@@ -10,19 +10,29 @@
 #include "fakes/Arduino.h"
 #include <driver/pcnt.h>
 #include "../src/app/robot_controller.h"
+#include "../src/config/robot_config.h"
 #include <cassert>
 
 static void tick(robot::RobotController &c) { fakeNow += 10000; c.update(); }
-static void stopped() { for (auto duty : fakePwm) assert(duty == 0); }
+static void stopped() {
+  for (uint8_t i = 0; i < robot::wheelCount; ++i) assert(fakePwm[i] == 0);
+}
 int main() {
   robot::RobotController c;
   assert(c.begin()); tick(c); assert(c.arm());
   assert(c.commandVelocity({0.1f, 0, 0})); tick(c);
-  // 常闭急停断线或触发后的 HIGH 必须锁存。
-  fakePin[17] = HIGH; tick(c); stopped();
-  assert(c.emergencyStopped());
-  c.setEmergencyStop(false); assert(c.emergencyStopped());
-  fakePin[17] = LOW; tick(c); assert(c.emergencyStopped());
+  if (robot::config::emergencyStopPin >= 0) {
+    // 常闭急停断线或触发后必须锁存，恢复引脚不会自动解除。
+    fakePin[robot::config::emergencyStopPin] =
+      robot::config::emergencyStopActiveHigh ? HIGH : LOW;
+    tick(c); stopped(); assert(c.emergencyStopped());
+    c.setEmergencyStop(false); assert(c.emergencyStopped());
+    fakePin[robot::config::emergencyStopPin] =
+      robot::config::emergencyStopActiveHigh ? LOW : HIGH;
+    tick(c); assert(c.emergencyStopped());
+  } else {
+    c.setEmergencyStop(true); stopped(); assert(c.emergencyStopped());
+  }
   c.setEmergencyStop(false); assert(!c.emergencyStopped());
   assert(!c.commandVelocity({0.1f, 0, 0}));
   assert(c.arm()); assert(c.commandVelocity({0.1f, 0, 0})); tick(c);
@@ -30,12 +40,12 @@ int main() {
   assert(c.fault() == robot::RobotFault::encoder);
   fakePcntFailure = 0; assert(!c.arm());
 
-  // 使用非恒等映射，电气 M3 的计数应出现在逻辑 FL。
+  // 当前映射中电气M3对应逻辑RL，编码器方向修正后正转速度应为正。
   robot::RobotController mapped;
-  assert(mapped.begin()); fakePcnt[2] = 10; tick(mapped);
+  assert(mapped.begin()); fakePcnt[2] = -10; tick(mapped);
   assert(mapped.ticks()[2] == 10);
-  assert(mapped.wheelSpeed().value[robot::frontLeft] > 0);
-  assert(mapped.wheelSpeed().value[robot::rearLeft] == 0);
+  assert(mapped.wheelSpeed().value[robot::rearLeft] > 0);
+  assert(mapped.wheelSpeed().value[robot::frontLeft] == 0);
 
   // 反向编码器反馈不可在持续发送新命令时无限增大输出。
   robot::RobotController reversed;

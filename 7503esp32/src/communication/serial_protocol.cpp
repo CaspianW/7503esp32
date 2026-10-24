@@ -1,6 +1,6 @@
 /**
  * @file serial_protocol.cpp
- * @brief Validated velocity, arming and emergency-stop command parsing.
+ * @brief Validated chassis, lift-endpoint and emergency-stop command parsing.
  * @author Caspian Wu
  * @date 2026-10-22
  * @version 0.1.0
@@ -40,13 +40,23 @@ SerialCommand parseSerialCommand(const char *line) {
     if (!strcmp(token[0], "status")) out.kind = CommandKind::status;
     if (!strcmp(token[0], "arm")) out.kind = CommandKind::arm;
     if (!strcmp(token[0], "stop")) out.kind = CommandKind::stop;
+  } else if (count == 2 && !strcmp(token[0], "manual")) {
+    if (!strcmp(token[1], "arm")) out.kind = CommandKind::manualArm;
+    if (!strcmp(token[1], "stop")) out.kind = CommandKind::manualStop;
   } else if (count == 2 && !strcmp(token[0], "lift")) {
-    if (!strcmp(token[1], "arm")) out.kind = CommandKind::liftArm;
     if (!strcmp(token[1], "stop")) out.kind = CommandKind::liftStop;
-    if (!strcmp(token[1], "keep")) out.kind = CommandKind::liftKeep;
     if (!strcmp(token[1], "up") || !strcmp(token[1], "down")) {
       out.kind = CommandKind::liftTarget;
       out.lift = !strcmp(token[1], "up") ? LiftPosition::raised : LiftPosition::lowered;
+    }
+  } else if (count == 3 && !strcmp(token[0], "manual") &&
+             !strcmp(token[1], "duty")) {
+    errno = 0;
+    char *end = nullptr;
+    const float duty = strtof(token[2], &end);
+    if (end != token[2] && !*end && errno != ERANGE && isfinite(duty)) {
+      out.kind = CommandKind::manualDuty;
+      out.duty = duty;
     }
   } else if (count == 2 && !strcmp(token[0], "estop") &&
              (!strcmp(token[1], "0") || !strcmp(token[1], "1"))) {
@@ -63,6 +73,17 @@ SerialCommand parseSerialCommand(const char *line) {
     }
     out.velocity = {values[0], values[1], values[2]};
     out.kind = CommandKind::velocity;
+  } else if (count == 5 && !strcmp(token[0], "manual") && !strcmp(token[1], "vel")) {
+    float values[3];
+    for (size_t i = 0; i < 3; ++i) {
+      errno = 0;
+      char *end = nullptr;
+      values[i] = strtof(token[i + 2], &end);
+      if (end == token[i + 2] || *end || errno == ERANGE ||
+          !isfinite(values[i])) return out;
+    }
+    out.velocity = {values[0], values[1], values[2]};
+    out.kind = CommandKind::manualVelocity;
   }
   return out;
 }

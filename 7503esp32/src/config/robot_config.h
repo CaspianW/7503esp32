@@ -25,7 +25,7 @@ constexpr float trackWidth = 0.17f; // 左右轮中心距，单位 m
 
 // Yahboom 标称编码器为 13 PPR、减速比为 1:20；其示例对 AB 两路的边沿计数，
 // 因此输出轴每转约对应 1040 个计数。
-constexpr float encoderCounts = 1040.0f; // 输出轴每转计数，单位 count/rev
+constexpr float encoderCounts = 1040.0f; // 速度换算比例，单位 count/rev
 
 constexpr uint32_t motorPwmFrequency = 25000; // 单位 Hz
 constexpr uint32_t servoPwmFrequency = 50;    // 单位 Hz
@@ -34,50 +34,58 @@ constexpr uint16_t imuAccelFullScale = 16;    // 单位 g
 constexpr uint16_t imuGyroFullScale = 2000;   // 单位 °/s
 
 // 实车核对电机接线、车轮方向与急停后才能改为 true。
-constexpr bool motorOutputsEnabled = false;
-// 台架测试需同时打开此开关和 motorOutputsEnabled；默认上电绝不转动。
+constexpr bool motorOutputsEnabled = true;
+// 暂停台架测试；以后重启台架时按已测起动占空比测试。
 constexpr bool motorBenchEnabled = false;
-constexpr uint8_t motorBenchChannel = 0; // 0～3 对应控制板 M1～M4，非车轮位置
-constexpr float motorBenchDuty = 0.15f;
-constexpr uint32_t motorBenchWait = 2000; // 单位 ms
-constexpr uint32_t motorBenchRun = 500;   // 单位 ms
-// 电机正向与编码器计数正向需在实车上逐轮校准。
-constexpr int8_t motorDirection[wheelCount] = {1, 1, 1, 1};
-constexpr int8_t encoderDirection[wheelCount] = {1, 1, 1, 1};
+constexpr float motorBenchDuty = 0.7f; // 单位占空比，四电机台架测试输出
+// 保留手动开环代码，需要重新标定硬件时可关闭底盘闭环后启用。
+constexpr bool manualOpenLoopEnabled = true;
+constexpr float manualDuty = 0.7f; // 单位占空比，键盘控制时活动车轮的固定输出
+// 开环期间只采样编码器并回传计数/轮速，不参与电机控制。
+constexpr bool encoderReadEnabled = true;
+// 按电气通道M1～M4排列；已按前进测试补偿左右电机的镜像安装方向。
+constexpr int8_t motorDirection[wheelCount] = {-1, -1, 1, 1};
+// 按M1～M4排列；按小车正前方向手转时原始计数为+、+、-、-，统一修正为正。
+constexpr int8_t encoderDirection[wheelCount] = {1, 1, -1, -1};
 
-// MG996 舵机无外部位置反馈；以下是控制脉宽，不是编码器读数。
-// 实车装配并确认机械限位后再标定，零值表示禁止启用升降控制。
-constexpr uint16_t liftLoweredPulse = 0; // 单位 µs
-constexpr uint16_t liftRaisedPulse = 0;  // 单位 µs
-// 升降单独使能；端点必须标定为500～2500µs内不同的值。
-constexpr bool liftOutputsEnabled = false;
-constexpr uint8_t liftServoChannel = 0; // 0=S1(GPIO8)，1=S2(GPIO21)
-constexpr uint32_t liftCommandTimeout = 500; // 单位 ms，失去心跳后停止PWM
+// MG996舵机无外部位置反馈；以下是控制脉宽，不是编码器读数。
+constexpr uint16_t liftLoweredPulse = 1700; // 单位 µs，已测底部
+constexpr uint16_t liftRaisedPulse = 500;   // 单位 µs，已测顶部
+// 舵机上电即初始化PWM；端点须在500～2500µs内且互不相同。
+constexpr bool liftOutputsEnabled = true;
+constexpr uint8_t liftServoChannel = 1; // 0=S1(GPIO8)，1=S2(GPIO21)；当前接S2
 
 constexpr uint32_t controlPeriod = 10000;  // 单位 µs，100 Hz
 constexpr uint32_t imuPeriod = 10000;      // 单位 µs，100 Hz
 constexpr uint32_t odometryPeriod = 20000; // 单位 µs，50 Hz
 constexpr uint32_t rosSpinPeriod = 1000;   // 单位 µs，最高 1 kHz
 
-// 实测机器人后再整定。增益暂设为零，待电机和编码器特性确认后再启用车轮控制器。
-constexpr float wheelPidKp = 0.0f;
-constexpr float wheelPidKi = 0.0f;
+// 根据70%占空比约0.63～0.69m/s的空载实测值设置首轮闭环整定参数。
+// 首轮测试不使用D项，避免编码器量化噪声被放大。
+constexpr float wheelPidKp = 0.4f;
+constexpr float wheelPidKi = 0.5f;
 constexpr float wheelPidKd = 0.0f;
-constexpr float wheelPidOutputLimit = 0.2f;
+constexpr float wheelPidOutputLimit = 0.7f; // 单位占空比，使用已验证的测试上限
 constexpr float wheelPidIntegralLimit = 1.0f;
+// 实测静摩擦和速度前馈：duty = sign(target) * wheelKs + wheelKv * target。
+constexpr float wheelKs = 0.515f; // 单位占空比，按0.55～0.75实测拟合
+constexpr float wheelKv = 0.275f; // 单位 (占空比)/(m/s)
+constexpr float wheelMinDuty = 0.6f; // 单位占空比，非零轮速目标的最低输出
 
-constexpr float maxLinearSpeed = 0.0f;  // 单位 m/s，车轮校准后设置
-constexpr float maxAngularSpeed = 0.0f; // 单位 rad/s，底盘校准后设置
+constexpr float maxLinearSpeed = 0.5f;  // 单位 m/s，低于当前实测空载轮速
+constexpr float maxAngularSpeed = 2.0f; // 单位 rad/s
 constexpr uint32_t commandTimeout = 500; // 单位 ms
 
 // 开环台架与闭环整车模式互斥；三个确认项均满足后才接受 arm/vel。
-constexpr bool chassisControlEnabled = false;
-constexpr bool wheelMappingConfirmed = false;
+constexpr bool chassisControlEnabled = true;
+constexpr bool wheelMappingConfirmed = true;
 // 索引为逻辑轮序 FL、RL、FR、RR，值为电气通道 M1～M4 的 0～3。
-constexpr uint8_t wheelChannel[wheelCount] = {0, 1, 2, 3};
-constexpr float maxWheelSpeed = 0.0f; // 单位 m/s，需按实测电机能力设置
-constexpr float maxWheelAcceleration = 0.5f; // 单位 m/s²
-constexpr float motorDutyLimit = 0.2f; // 初次调试全局占空比上限
+// 实车接线：FL=M4、RL=M3、FR=M2、RR=M1。
+constexpr uint8_t wheelChannel[wheelCount] = {3, 2, 1, 0};
+constexpr float maxWheelSpeed = 0.7f; // 单位 m/s，按四轮当前最大实测值取整
+// 当前不人为延迟起转；100Hz控制下每周期最多变化0.5m/s，可覆盖全部平移测试。
+constexpr float maxWheelAcceleration = 50.0f; // 单位 m/s²
+constexpr float motorDutyLimit = 1.0f; // 单位占空比，闭环输出最大值
 constexpr uint32_t maxControlGap = 50000; // 单位 µs，超时锁定停机
 constexpr uint32_t telemetryPeriod = 100000; // 单位 µs，10 Hz
 constexpr uint32_t imuFreshness = 100; // 单位 ms
@@ -86,7 +94,7 @@ constexpr bool useImuYaw = false;
 constexpr int8_t imuYawDirection = 1; // 芯片 Z 轴与车体 Z 轴同向为 +1
 // 持续输出但编码器无反馈或方向相反时锁定停机；阈值仍需实车验证。
 constexpr uint32_t feedbackTimeout = 500; // 单位 ms
-constexpr float feedbackMinDuty = 0.1f;
+constexpr float feedbackMinDuty = 0.6f; // 单位占空比，低于实测起转值时不判定失速
 constexpr float feedbackMinTarget = 0.02f; // 单位 m/s
 constexpr float feedbackMinSpeed = 0.002f; // 单位 m/s
 constexpr uint32_t serialBaud = 115200;

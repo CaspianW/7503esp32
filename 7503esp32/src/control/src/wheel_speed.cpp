@@ -50,10 +50,11 @@ bool WheelSpeed::update(const int64_t (&ticks)[wheelCount], uint32_t now,
         (lastTicks_[i] > 0 && ticks[i] < INT64_MIN + lastTicks_[i])) {
       return false;
     }
-    const int64_t delta = static_cast<int64_t>(ticks[i]) - lastTicks_[i];
+    // ticks 是启动以来的累计值；相减得到本采样间隔的相对计数。
+    const int64_t deltaTicks = static_cast<int64_t>(ticks[i]) - lastTicks_[i];
     // 单次采样增量若异常巨大，不能安全推断速度。
-    if (delta < INT32_MIN || delta > INT32_MAX) return false;
-    next.value[i] = static_cast<float>(delta) * scale_ / dt;
+    if (deltaTicks < INT32_MIN || deltaTicks > INT32_MAX) return false;
+    next.value[i] = static_cast<float>(deltaTicks) * scale_ / dt;
     if (!isfinite(next.value[i])) return false;
   }
   for (uint8_t i = 0; i < wheelCount; ++i) {

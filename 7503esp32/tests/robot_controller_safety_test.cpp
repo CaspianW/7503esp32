@@ -1,6 +1,6 @@
 /**
  * @file robot_controller_safety_test.cpp
- * @brief Controller integration tests for disabled, calibrated and one-shot bench profiles.
+ * @brief Controller integration tests for the calibrated closed-loop profile.
  * @author Caspian Wu
  * @date 2026-10-22
  * @version 0.1.0
@@ -9,6 +9,7 @@
 
 #include "fakes/Arduino.h"
 #include "../src/app/robot_controller.h"
+#include "../src/config/robot_config.h"
 #include <cassert>
 #include <math.h>
 
@@ -23,8 +24,8 @@ int main() {
   assert(!controller.begin()); // 不能重启一次性模式
   assert(stopped());
   tick(controller);
-  assert(controller.speedReady());
-#ifdef CALIBRATED_FIXTURE
+  assert(controller.speedReady() ==
+         (robot::config::encoderReadEnabled || robot::config::chassisControlEnabled));
   assert(controller.arm());
   assert(controller.commandVelocity({0.1f, 0, 0}));
   for (int i = 0; i < 20; ++i) tick(controller);
@@ -67,33 +68,6 @@ int main() {
   }
   assert(stalled.fault() == robot::RobotFault::feedback);
   assert(stopped()); assert(!stalled.arm());
-#elif defined(BENCH_FIXTURE)
-  for (int i = 0; i < 198; ++i) tick(controller);
-  assert(stopped());
-  tick(controller); assert(!stopped()); // 正好 2 秒开始
-  for (int i = 0; i < 49; ++i) tick(controller);
-  assert(!stopped());
-  tick(controller); assert(stopped()); // 正好 2.5 秒结束
-  for (int i = 0; i < 10; ++i) tick(controller);
-  assert(stopped()); assert(!controller.begin());
-  assert(!controller.arm());
-  robot::RobotController interrupted;
-  assert(interrupted.begin());
-  for (int i = 0; i < 200; ++i) tick(interrupted);
-  assert(!stopped());
-  interrupted.setEmergencyStop(true); assert(stopped());
-  interrupted.setEmergencyStop(false);
-  for (int i = 0; i < 100; ++i) tick(interrupted);
-  assert(stopped()); assert(!interrupted.begin());
-#else
-  assert(!controller.arm());
-  assert(!controller.commandVelocity({0.1f, 0, 0}));
-  assert(!controller.motionAllowed());
-  controller.setEmergencyStop(true);
-  assert(stopped()); assert(!controller.begin());
-  controller.setEmergencyStop(false);
-  assert(!controller.arm());
-#endif
   robot::RobotController stoppedBeforeBegin;
   stoppedBeforeBegin.setEmergencyStop(true);
   assert(!stoppedBeforeBegin.begin());

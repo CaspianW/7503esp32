@@ -23,8 +23,6 @@ public:
 private:
   bool initialized_ = false;
   uint8_t pin_ = 0;
-  uint16_t minimumPulse_ = 0; // 单位 µs
-  uint16_t maximumPulse_ = 0; // 单位 µs
   uint32_t frequency_ = 0; // 单位 Hz
 };
 

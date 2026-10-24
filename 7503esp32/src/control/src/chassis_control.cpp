@@ -20,12 +20,15 @@ bool ChassisControl::configure(const ChassisParam &param) {
       !isfinite(param.maxAngular) || param.maxAngular <= 0.0f ||
       !isfinite(param.maxWheel) || param.maxWheel <= 0.0f ||
       !isfinite(param.acceleration) || param.acceleration <= 0.0f ||
+      !isfinite(param.ks) || param.ks < 0.0f ||
+      !isfinite(param.kv) || param.kv < 0.0f ||
+      !isfinite(param.minDuty) || param.minDuty < 0.0f ||
       !isfinite(param.pid.kp) || param.pid.kp <= 0.0f ||
       !isfinite(param.pid.ki) || param.pid.ki < 0.0f ||
       !isfinite(param.pid.kd) || param.pid.kd < 0.0f ||
       !isfinite(param.pid.outMax) || param.pid.outMax <= 0.0f ||
       param.pid.outMax > 1.0f || !isfinite(param.pid.iMax) ||
-      param.pid.iMax < 0.0f ||
+      param.pid.iMax < 0.0f || param.minDuty > param.pid.outMax ||
       !kinematics_.configure(param.base, param.track)) return false;
   param_ = param;
   wheels_.configure(param.pid);
@@ -71,6 +74,17 @@ bool ChassisControl::update(const Twist2D &command,
   for (uint8_t i = 0; i < wheelCount; ++i)
     target_.value[i] += (next.value[i] - target_.value[i]) * scale;
   duty = wheels_.update(target_, measured, dt);
+  for (uint8_t i = 0; i < wheelCount; ++i) {
+    const float target = target_.value[i];
+    if (target != 0.0f) {
+      duty.value[i] += copysignf(param_.ks, target) + param_.kv * target;
+      if (duty.value[i] > param_.pid.outMax) duty.value[i] = param_.pid.outMax;
+      if (duty.value[i] < -param_.pid.outMax) duty.value[i] = -param_.pid.outMax;
+      // 实测低于60%无法保证四轮转动；非零目标始终保持最低有效输出。
+      if (fabsf(duty.value[i]) < param_.minDuty)
+        duty.value[i] = copysignf(param_.minDuty, target);
+    }
+  }
   return true;
 }
 

@@ -18,6 +18,7 @@ constexpr int HIGH = 1;
 constexpr int LOW = 0;
 extern uint32_t fakeNow;
 extern uint32_t fakePwm[8];
+extern uint32_t fakeFreq[8];
 extern int fakePin[49];
 extern int fakeAttached[49];
 extern int fakeSetupFailure;
@@ -28,8 +29,11 @@ inline void pinMode(int, int) {}
 inline void digitalWrite(int pin, int value) { fakePin[pin] = value; }
 inline int digitalRead(int pin) { return fakePin[pin]; }
 inline double ledcSetup(uint8_t channel, double frequency, uint8_t) {
+  fakeFreq[channel] = channel == fakeSetupFailure ? 0 : frequency;
   return channel == fakeSetupFailure ? 0 : frequency;
 }
+inline uint32_t ledcRead(uint8_t channel) { return fakePwm[channel]; }
+inline uint32_t ledcReadFreq(uint8_t channel) { return fakePwm[channel] ? fakeFreq[channel] : 0; }
 inline void ledcWrite(uint8_t channel, uint32_t duty) { fakePwm[channel] = duty; }
 inline void ledcAttachPin(uint8_t pin, uint8_t channel) { fakeAttached[pin] = channel; }
 inline void ledcDetachPin(uint8_t pin) { fakeAttached[pin] = -1; }

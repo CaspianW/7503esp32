@@ -12,6 +12,8 @@
 #include <stdint.h>
 #include <stddef.h>
 
+#include "../common/robot_types.h"
+
 namespace robot {
 class RobotController;
 class SerialConsole {

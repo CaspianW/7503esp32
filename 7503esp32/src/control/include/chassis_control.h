@@ -21,6 +21,9 @@ struct ChassisParam {
   float maxAngular; // 单位 rad/s
   float maxWheel; // 单位 m/s
   float acceleration; // 单位 m/s²，四轮设定值变化率
+  float ks; // 静摩擦前馈，单位占空比
+  float kv; // 速度前馈，单位 (占空比)/(m/s)
+  float minDuty; // 非零轮速目标的最小占空比
   PidParam pid;
 };
 

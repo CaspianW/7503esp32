@@ -64,9 +64,21 @@ bool Imu::read(ImuSample &sample) {
     return false;
   }
   inv_imu_sensor_event_t event{};
-  if (sensor_->getDataFromRegisters(event) != 0 ||
-      !sensor_->isAccelDataValid(&event) ||
-      !sensor_->isGyroDataValid(&event)) {
+  // 寄存器轮询接口不会设置FIFO专用的sensor_mask；用哨兵值识别
+  // 库在DRDY未就绪时“返回成功但不写入event”的情况。
+  constexpr int16_t noSample = INT16_MIN;
+  for (uint8_t axis = 0; axis < 3; ++axis) {
+    event.accel[axis] = noSample;
+    event.gyro[axis] = noSample;
+  }
+  event.temperature = noSample;
+  if (sensor_->getDataFromRegisters(event) != 0) {
+    return false;
+  }
+  if (event.accel[0] == noSample && event.accel[1] == noSample &&
+      event.accel[2] == noSample && event.gyro[0] == noSample &&
+      event.gyro[1] == noSample && event.gyro[2] == noSample &&
+      event.temperature == noSample) {
     return false;
   }
 

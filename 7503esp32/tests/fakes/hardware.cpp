@@ -12,6 +12,7 @@
 #include <driver/pcnt.h>
 uint32_t fakeNow = 0;
 uint32_t fakePwm[8] = {};
+uint32_t fakeFreq[8] = {};
 int fakePin[49] = {};
 int fakeAttached[49] = {};
 int fakeSetupFailure = -1;
@@ -19,6 +20,9 @@ int16_t fakePcnt[4] = {};
 int fakePcntFailure = 0;
 FakeWire Wire;
 FakeSerial Serial;
+inv_imu_sensor_event_t fakeImuEvent{};
+bool fakeImuDataReady = false;
+int fakeImuReadStatus = 0;
 
 namespace {
 struct ResetPins {

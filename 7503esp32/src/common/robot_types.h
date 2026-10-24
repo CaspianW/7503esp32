@@ -14,7 +14,7 @@
 namespace robot {
 
 enum WheelId : uint8_t {
-  // 以下逻辑轮序尚未与实体接线核对；数值 0～3 暂对应电气通道 M1～M4。
+  // 逻辑轮序固定为 FL、RL、FR、RR；实体电气通道映射见 robot_config::wheelChannel。
   frontLeft = 0,
   rearLeft = 1,
   frontRight = 2,

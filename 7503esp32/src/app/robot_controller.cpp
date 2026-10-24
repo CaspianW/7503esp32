@@ -1,6 +1,6 @@
 /**
  * @file robot_controller.cpp
- * @brief Scheduled encoder feedback, odometry, chassis control and immediate motor shutdown.
+ * @brief Scheduled chassis control, manual driving and lift pulse output.
  * @author Caspian Wu
  * @date 2026-10-22
  * @version 0.1.0
@@ -35,6 +35,7 @@ bool RobotController::begin() {
   // 任何 begin 尝试后都不可重启一次性台架或清除故障。
   if (started_ || stopLatched_) return false;
   started_ = true;
+  manualDuty_ = config::manualDuty;
   safety_.begin();
   benchMode_ = config::motorBenchEnabled;
   if (!motorDriver_.begin()) { fail(RobotFault::motor); return false; }
@@ -44,27 +45,31 @@ bool RobotController::begin() {
       config::maxControlGap > 50000 ||
       (config::motorBenchEnabled && config::chassisControlEnabled) ||
       (benchMode_ && (!config::motorOutputsEnabled ||
-        config::motorBenchChannel >= board::motorCount ||
         !isfinite(config::motorBenchDuty) || config::motorBenchDuty == 0.0f ||
-        fabsf(config::motorBenchDuty) > 0.2f ||
-        fabsf(config::motorBenchDuty) > config::motorDutyLimit ||
-        config::motorBenchRun == 0 || config::motorBenchRun > 500 ||
-        config::motorBenchWait < 2000))) {
+        fabsf(config::motorBenchDuty) > config::motorDutyLimit)) ||
+      (config::manualOpenLoopEnabled && (!config::motorOutputsEnabled ||
+        !isfinite(config::manualDuty) || config::manualDuty <= 0.0f ||
+        config::manualDuty > config::motorDutyLimit))) {
     fail(RobotFault::configuration); return false;
   }
   if (config::emergencyStopPin >= 0)
     pinMode(config::emergencyStopPin, INPUT_PULLUP);
   if (physicalStop()) setEmergencyStop(true);
-  // 诊断和台架都读取编码器；未初始化成功时绝不允许运动。
-  if (!encoder_.begin() ||
-      !wheelSpeed_.configure(config::encoderCounts, config::wheelRadius)) {
+  const bool geometryReady = kinematics_.configure(config::wheelbase, config::trackWidth);
+  if ((config::chassisControlEnabled || config::manualOpenLoopEnabled) && !geometryReady) {
+    fail(RobotFault::configuration); return false;
+  }
+  // 闭环始终需要编码器；开环可单独启用只读采样用于诊断和状态回传。
+  const bool encoderRequired = config::chassisControlEnabled || config::encoderReadEnabled;
+  if (encoderRequired && (!encoder_.begin() ||
+      !wheelSpeed_.configure(config::encoderCounts, config::wheelRadius))) {
     fail(RobotFault::encoder); return false;
   }
-  const bool geometryReady = kinematics_.configure(config::wheelbase, config::trackWidth);
   if (config::chassisControlEnabled) {
     ChassisParam param{config::wheelbase, config::trackWidth,
       config::maxLinearSpeed, config::maxAngularSpeed, config::maxWheelSpeed,
-      config::maxWheelAcceleration,
+      config::maxWheelAcceleration, config::wheelKs, config::wheelKv,
+      config::wheelMinDuty,
       PidParam(config::wheelPidKp, config::wheelPidKi, config::wheelPidKd,
                config::wheelPidOutputLimit, config::wheelPidIntegralLimit, true)};
     if (!config::motorOutputsEnabled || !config::wheelMappingConfirmed ||
@@ -78,12 +83,18 @@ bool RobotController::begin() {
       (!imuStarted_ || (config::imuYawDirection != 1 && config::imuYawDirection != -1))) {
     fail(RobotFault::imu); return false;
   }
-  if (!encoder_.readAllTicks(ticks_)) { fail(RobotFault::encoder); return false; }
-  int64_t logical[wheelCount] = {};
-  for (uint8_t i = 0; i < wheelCount; ++i) logical[i] = ticks_[config::wheelChannel[i]];
   lastControl_ = micros(); lastImu_ = lastControl_;
-  wheelSpeed_.update(logical, lastControl_, speed_);
-  motorBenchStart_ = millis();
+  if (encoderRequired) {
+    if (!encoder_.readAllTicks(ticks_)) { fail(RobotFault::encoder); return false; }
+    int64_t logical[wheelCount] = {};
+    for (uint8_t i = 0; i < wheelCount; ++i) logical[i] = ticks_[config::wheelChannel[i]];
+    wheelSpeed_.update(logical, lastControl_, speed_);
+  }
+  if (config::liftOutputsEnabled) {
+    if (!liftConfigured() || !initLift()) {
+      fail(RobotFault::lift); return false;
+    }
+  }
   initialized_ = true;
   return true;
 }
@@ -117,6 +128,7 @@ void RobotController::halt() {
 
 void RobotController::stopChassis() {
   halt(); armed_ = false; commandReceived_ = false;
+  manualMode_ = false;
   safety_.invalidateCommand();
   if (benchMode_) benchDone_ = true;
 }
@@ -128,50 +140,39 @@ void RobotController::stop() {
 
 bool RobotController::liftConfigured() const {
   return config::liftServoChannel < 2 && config::servoPwmFrequency == 50 &&
-    config::liftCommandTimeout > 0 && config::liftCommandTimeout <= 1000 &&
     config::liftLoweredPulse >= 500 && config::liftLoweredPulse <= 2500 &&
     config::liftRaisedPulse >= 500 && config::liftRaisedPulse <= 2500 &&
     config::liftLoweredPulse != config::liftRaisedPulse &&
     !(config::liftServoChannel == 1 && config::emergencyStopPin == board::servoS2);
 }
 
-uint16_t RobotController::liftPulse() const {
-  if (!liftActive_) return 0;
-  return liftTarget_ == LiftPosition::raised ? config::liftRaisedPulse : config::liftLoweredPulse;
-}
-
 void RobotController::stopLift() {
   liftController_.stop();
   servoDriver_.detach();
-  liftArmed_ = false; liftActive_ = false;
+  liftReady_ = false; liftActive_ = false; liftTarget_ = 2; liftPulse_ = 0;
 }
 
-bool RobotController::armLift() {
-  if (!initialized_ || benchMode_ || emergencyStop_ || physicalStop() ||
-      fault_ != RobotFault::none || !config::liftOutputsEnabled || !liftConfigured()) return false;
-  // 重复使能不撤掉已有的保持PWM；也不会回放上次停机前的目标。
-  if (!liftArmed_) {
-    const uint8_t pin = config::liftServoChannel == 0 ? board::servoS1 : board::servoS2;
-    if (!servoDriver_.begin(pin, config::servoPwmFrequency) ||
-        !liftController_.begin(servoDriver_, config::liftLoweredPulse, config::liftRaisedPulse)) {
-      fail(RobotFault::lift); return false;
-    }
-    liftArmed_ = true;
-  }
-  lastLiftCommand_ = millis();
-  return true;
-}
-
-bool RobotController::keepLiftAlive() {
-  if (!liftArmed_ || emergencyStop_ || physicalStop() || fault_ != RobotFault::none) return false;
-  lastLiftCommand_ = millis();
+bool RobotController::initLift() {
+  if (liftReady_) return true;
+  if (!config::liftOutputsEnabled || !liftConfigured()) return false;
+  const uint8_t pin = config::liftServoChannel == 0 ? board::servoS1 : board::servoS2;
+  if (!servoDriver_.begin(pin, config::servoPwmFrequency) ||
+      !liftController_.begin(servoDriver_, config::liftLoweredPulse,
+                             config::liftRaisedPulse)) return false;
+  liftReady_ = true;
   return true;
 }
 
 bool RobotController::commandLift(LiftPosition target) {
-  if ((target != LiftPosition::lowered && target != LiftPosition::raised) || !keepLiftAlive()) return false;
+  if ((target != LiftPosition::lowered && target != LiftPosition::raised) ||
+      !initialized_ || benchMode_ || fault_ != RobotFault::none ||
+      !config::liftOutputsEnabled ||
+      !liftConfigured()) return false;
+  if (!initLift()) { fail(RobotFault::lift); return false; }
   liftController_.request(target);
-  liftTarget_ = target; liftActive_ = true;
+  liftTarget_ = target == LiftPosition::raised ? 1 : 0;
+  liftPulse_ = target == LiftPosition::raised ? config::liftRaisedPulse : config::liftLoweredPulse;
+  liftActive_ = true;
   return true;
 }
 
@@ -190,11 +191,21 @@ bool RobotController::arm() {
   return true;
 }
 
+bool RobotController::armManual() {
+  if (!initialized_ || !config::manualOpenLoopEnabled ||
+      !config::motorOutputsEnabled || fault_ != RobotFault::none ||
+      emergencyStop_ || physicalStop() || benchMode_) return false;
+  stopChassis();
+  manualMode_ = true;
+  armed_ = true;
+  return true;
+}
+
 bool RobotController::commandVelocity(const Twist2D &command) {
   if (!isfinite(command.vx) || !isfinite(command.vy) || !isfinite(command.wz)) {
     stop(); return false;
   }
-  if (!armed_ || emergencyStop_ || fault_ != RobotFault::none || physicalStop()) return false;
+  if (!armed_ || manualMode_ || emergencyStop_ || fault_ != RobotFault::none || physicalStop()) return false;
   command_ = command;
   commandReceived_ = true;
   safety_.noteVelocityCommand(millis());
@@ -202,12 +213,33 @@ bool RobotController::commandVelocity(const Twist2D &command) {
   return true;
 }
 
+bool RobotController::commandManualVelocity(const Twist2D &command) {
+  if (!isfinite(command.vx) || !isfinite(command.vy) || !isfinite(command.wz)) {
+    stop(); return false;
+  }
+  if (!manualMode_ || !armed_ || emergencyStop_ || fault_ != RobotFault::none || physicalStop())
+    return false;
+  command_ = command;
+  commandReceived_ = true;
+  safety_.noteVelocityCommand(millis());
+  if (command.vx == 0.0f && command.vy == 0.0f && command.wz == 0.0f) halt();
+  return true;
+}
+
+bool RobotController::setManualDuty(float duty) {
+  if (!isfinite(duty) || duty <= 0.0f || duty > config::motorDutyLimit ||
+      !manualMode_ || !armed_ || emergencyStop_ ||
+      fault_ != RobotFault::none || physicalStop()) return false;
+  manualDuty_ = duty;
+  return true;
+}
+
 void RobotController::setEmergencyStop(bool active) {
   if (!active && physicalStop()) return;
   emergencyStop_ = active;
   safety_.setEmergencyStop(active);
-  // 解除急停仍保持 disarmed；台架测试永久结束。
-  stop();
+  // 急停只作用于底盘；升降保持原输出。解除后仍需重新使能，台架测试永久结束。
+  stopChassis();
   if (active) stopLatched_ = true;
 }
 
@@ -224,8 +256,6 @@ bool RobotController::imuReady() const {
 void RobotController::update() {
   if (!initialized_) return;
   if (physicalStop()) setEmergencyStop(true);
-  if (liftArmed_ && static_cast<uint32_t>(millis() - lastLiftCommand_) >= config::liftCommandTimeout)
-    stopLift();
   const uint32_t now = micros();
   const uint32_t elapsed = now - lastControl_;
   // 在任何 I2C 或串口操作前先检查超时并撤销输出。
@@ -239,35 +269,46 @@ void RobotController::update() {
   if (elapsed > config::maxControlGap) fail(RobotFault::timing);
   if (elapsed < config::controlPeriod) return;
   lastControl_ = now;
-  if (!encoder_.readAllTicks(ticks_)) { fail(RobotFault::encoder); return; }
-  int64_t logical[wheelCount] = {};
-  for (uint8_t i = 0; i < wheelCount; ++i) logical[i] = ticks_[config::wheelChannel[i]];
-  speedReady_ = wheelSpeed_.update(logical, now, speed_);
-  if (!speedReady_) { fail(RobotFault::feedback); return; }
   const float dt = elapsed * 0.000001f;
-  Twist2D body{};
-  if (kinematics_.forward(speed_, body) && (!config::useImuYaw || imuReady()))
-    odometry_.update(body, config::useImuYaw ? imuSample_.gyroZ * config::imuYawDirection : body.wz,
-                     dt, millis());
+  const bool encoderRequired = config::chassisControlEnabled || config::encoderReadEnabled;
+  if (encoderRequired) {
+    if (!encoder_.readAllTicks(ticks_)) { fail(RobotFault::encoder); return; }
+    int64_t logical[wheelCount] = {};
+    for (uint8_t i = 0; i < wheelCount; ++i) logical[i] = ticks_[config::wheelChannel[i]];
+    speedReady_ = wheelSpeed_.update(logical, now, speed_);
+    if (!speedReady_) { fail(RobotFault::feedback); return; }
+    Twist2D body{};
+    if (kinematics_.forward(speed_, body) && (!config::useImuYaw || imuReady()))
+      odometry_.update(body, config::useImuYaw ? imuSample_.gyroZ * config::imuYawDirection : body.wz,
+                       dt, millis());
+  }
   if (benchMode_) {
-    const MotorBenchPhase phase = motorBenchPhase(motorBenchStart_, millis(),
-      config::motorBenchWait, config::motorBenchRun);
-    if (phase == MotorBenchPhase::done) benchDone_ = true;
-    if (phase == MotorBenchPhase::run && !benchDone_ &&
-        fault_ == RobotFault::none && !emergencyStop_) {
-      motorDriver_.setDuty(static_cast<WheelId>(config::motorBenchChannel), config::motorBenchDuty);
-      duty_ = {};
+    if (!benchDone_ && fault_ == RobotFault::none && !emergencyStop_) {
+      WheelValues electrical{};
+      for (float &value : electrical.value) value = config::motorBenchDuty;
+      motorDriver_.setAllDuty(electrical);
       for (uint8_t i = 0; i < wheelCount; ++i)
-        if (config::wheelChannel[i] == config::motorBenchChannel) duty_.value[i] = config::motorBenchDuty;
+        duty_.value[i] = electrical.value[config::wheelChannel[i]];
     } else halt();
     return;
   }
   if (config::useImuYaw && !imuReady() && armed_) fail(RobotFault::imu);
   if (motionAllowed()) {
-    if (!chassis_.update(command_, speed_, dt, duty_)) { fail(RobotFault::feedback); return; }
-    if (!feedbackPlausible(millis())) { fail(RobotFault::feedback); return; }
     WheelValues electrical{};
-    for (uint8_t i = 0; i < wheelCount; ++i) electrical.value[config::wheelChannel[i]] = duty_.value[i];
+    if (manualMode_) {
+      WheelValues wheel{};
+      if (!kinematics_.inverse(command_, wheel)) { fail(RobotFault::configuration); return; }
+      for (uint8_t i = 0; i < wheelCount; ++i) {
+        duty_.value[i] = wheel.value[i] > 0.0f ? manualDuty_ :
+                         wheel.value[i] < 0.0f ? -manualDuty_ : 0.0f;
+        electrical.value[config::wheelChannel[i]] = duty_.value[i];
+      }
+    } else {
+      if (!chassis_.update(command_, speed_, dt, duty_)) { fail(RobotFault::feedback); return; }
+      if (!feedbackPlausible(millis())) { fail(RobotFault::feedback); return; }
+      for (uint8_t i = 0; i < wheelCount; ++i)
+        electrical.value[config::wheelChannel[i]] = duty_.value[i];
+    }
     motorDriver_.setAllDuty(electrical);
   }
   if (imuStarted_ && static_cast<uint32_t>(now - lastImu_) >= config::imuPeriod) {
