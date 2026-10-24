@@ -18,7 +18,7 @@ ESP32开发板包固定 **2.0.17**，通过库管理器安装TDK的 **ICM42670P 
 
 默认 `motorOutputsEnabled`、`motorBenchEnabled`、`chassisControlEnabled`、
 `wheelMappingConfirmed`、`liftOutputsEnabled` 均为false，上电不产生运动命令。
-轴距、轮距、整车速度上限和PID增益仍为0，必须实车标定，不代表已经可直接行驶。
+当前轴距配置为0.142m、轮距为0.17m；整车速度上限和PID增益仍为0，必须完成实车标定后再启用。
 
 逻辑轮序为左前FL、左后RL、右前FR、右后RR。`wheelChannel` 把逻辑轮映射到电气M1～M4的0～3；
 `motorDirection`、`encoderDirection` 按电气通道排列，填写+1或-1。
