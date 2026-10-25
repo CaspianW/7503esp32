@@ -45,4 +45,32 @@
 
 `tests/` 包含电脑端 C++ 测试和键盘工具的 Python 测试；其中 `tests/fakes/` 模拟 Arduino 与外设，不会烧录到板上。`tools/keyboard_control.py` 是独立的上位机测试工具，不属于固件。当前串口协议的实现以 `src/communication/serial_protocol.*` 为准。
 
+## ROS 2 桥接（树莓派侧）
+
+`tools/ros_serial_bridge.py` 在树莓派上把上述 ASCII 串口协议翻译成 ROS 2 话题，不需要重新烧录固件：
+
+| 方向 | 话题 | 消息类型 | 串口侧 |
+| --- | --- | --- | --- |
+| 下行 | `/cmd_vel` | `geometry_msgs/Twist` | `vel <vx> <vy> <wz>`，需先 `arm` |
+| 下行 | `/lift_cmd` | `std_msgs/String` | `lift up` / `lift down` / `lift stop` |
+| 下行 | `/estop` | `std_msgs/Bool` | `estop 1` / `estop 0` |
+| 上行 | `/wheel/odom` | `nav_msgs/Odometry` | `O` 帧 |
+| 上行 | `/imu/data_raw` | `sensor_msgs/Imu` | `I` 帧 |
+| 上行 | `/lift_state` | `std_msgs/UInt8` | `L` 帧，0=落下、1=抬起、2=运动中 |
+
+运行方式（Ubuntu 24.04 + ROS 2 Jazzy）：
+
+```bash
+source /opt/ros/jazzy/setup.bash
+sudo apt install python3-serial
+python3 tools/ros_serial_bridge.py --ros-args -p port:=/dev/ttyUSB0
+```
+
+注意：
+
+1. 桥接节点不发布 `odom` → `base_link` 变换，该变换由树莓派侧 EKF 唯一发布，避免双发布冲突；`/wheel/odom` 与 `/imu/data_raw` 作为 EKF 的输入。
+2. 固件 `telemetryPeriod` 当前为 100 ms，因此上行话题的实际频率是 10 Hz。接口表要求的更高频率需要修改 `src/config/robot_config.h`，只改桥接脚本无效。
+3. 固件在 500 ms 内收不到 `vel` 命令会锁停，桥接脚本在此基础上再补一层看门狗并主动发零速。
+4. 打开串口会触发 ESP32 复位，脚本默认等待 2 s 启动时间后再发 `arm`；`arm` 未确认时脚本直接报错退出，不会静默继续。
+
 > 这是课程项目固件，不是通用安全控制器。实车运行前仍需核对接线、轮位、转向和急停手段。
