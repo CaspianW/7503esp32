@@ -1,6 +1,7 @@
 # 7503 ESP32-S3 智能小车固件
 
-在 Arduino IDE 中打开本目录的 `7503esp32.ino`。开发板选择 **ESP32S3 Dev Module**，
+仓库根目录就是 Arduino 草图目录。在 Arduino IDE 中打开根目录的 `7503esp32.ino`；
+不要再额外创建一层同名文件夹。开发板选择 **ESP32S3 Dev Module**，
 ESP32开发板包固定 **2.0.17**，通过库管理器安装TDK的 **ICM42670P 1.0.9**。
 使用板上的UART0 USB转串口接口，关闭USB CDC On Boot；本次验证配置为4MB Flash、PSRAM禁用。
 烧录前确认实际板型及Flash配置，不要直接升级到Arduino-ESP32 3.x，LEDC/PCNT接口不同。

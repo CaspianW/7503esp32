@@ -33,7 +33,7 @@ __pycache__/
 *.py[cod]
 
 # Codex / Agent 项目级协作说明，仅供本地开发环境使用
-7503esp32/AGENTS.md
+/AGENTS.md
 
 # 本地工具链和导出物
 .tools/
