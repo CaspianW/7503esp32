@@ -138,6 +138,10 @@ void RobotController::stop() {
   stopLift();
 }
 
+void RobotController::disarm() {
+  stopChassis();
+}
+
 bool RobotController::liftConfigured() const {
   return config::liftServoChannel < 2 && config::servoPwmFrequency == 50 &&
     config::liftLoweredPulse >= 500 && config::liftLoweredPulse <= 2500 &&

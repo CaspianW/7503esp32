@@ -39,6 +39,7 @@ SerialCommand parseSerialCommand(const char *line) {
   if (count == 1) {
     if (!strcmp(token[0], "status")) out.kind = CommandKind::status;
     if (!strcmp(token[0], "arm")) out.kind = CommandKind::arm;
+    if (!strcmp(token[0], "disarm")) out.kind = CommandKind::disarm;
     if (!strcmp(token[0], "stop")) out.kind = CommandKind::stop;
   } else if (count == 2 && !strcmp(token[0], "manual")) {
     if (!strcmp(token[1], "arm")) out.kind = CommandKind::manualArm;

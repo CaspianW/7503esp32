@@ -13,7 +13,7 @@
 #include <stddef.h>
 
 namespace robot {
-enum class CommandKind { invalid, status, arm, stop, emergencyStop, velocity,
+enum class CommandKind { invalid, status, arm, disarm, stop, emergencyStop, velocity,
                          manualArm, manualStop, manualVelocity, manualDuty,
                          liftStop, liftTarget };
 struct SerialCommand {

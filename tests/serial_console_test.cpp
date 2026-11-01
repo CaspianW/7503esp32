@@ -122,6 +122,19 @@ int main() {
   assert(!c.emergencyStopped() && !c.armed());
   assert(c.liftActive() && fakePwm[4] != 0);
 
+  // 桥接断开或显式 disarm 只撤销底盘，不能释放升降保持力。
+  assert(c.arm());
+  assert(c.commandVelocity({0.05f, 0, 0}));
+  fakeNow += 10000; c.update();
+  const uint32_t holdingPwm = fakePwm[4];
+  Serial.output.clear(); Serial.input = "disarm\n"; console.update(c);
+  assert(Serial.output.find("OK\n") != std::string::npos);
+  assert(!c.armed() && !c.motionAllowed());
+  assert(!c.commandVelocity({0.05f, 0, 0}));
+  for (uint8_t channel = 0; channel < robot::wheelCount; ++channel)
+    assert(fakePwm[channel] == 0);
+  assert(c.liftActive() && fakePwm[4] == holdingPwm && holdingPwm != 0);
+
   Serial.input = std::string(130, 'a') + "\narm\n";
   while (Serial.available()) console.update(c);
   assert(Serial.output.find("ERR frame") != std::string::npos);

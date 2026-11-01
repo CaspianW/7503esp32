@@ -30,6 +30,7 @@ public:
   void update();
   bool arm();
   bool armManual();
+  void disarm(); // 只停底盘并丢弃旧速度，保留升降 PWM
   void stop(); // 立即停机、解除使能并丢弃旧指令
   bool commandVelocity(const Twist2D &command);
   bool commandManualVelocity(const Twist2D &command);

@@ -11,6 +11,7 @@
 
 // 当前固件默认运行 SerialConsole；该接口保留给后续原生 micro-ROS 适配。
 // 不伪造连接或导航数据。ROS 2 串口适配器位于 tools/ros_serial_bridge.py。
+// 串口桥接方案不调用本类；原生 micro-ROS 传输不能与 SerialConsole 共用 UART0。
 namespace robot {
 bool RosBridge::begin() { return false; }
 void RosBridge::spinOnce() {}
