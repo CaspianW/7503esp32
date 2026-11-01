@@ -1,430 +1,486 @@
 #!/usr/bin/env python3
-"""@file ros_serial_bridge.py
-@brief ESP32 ASCII 串口控制台与 ROS 2 Jazzy 之间的双向桥接节点。
-@author Huang Boyan
-@date 2026-10-25
-@version 0.1.0
+"""ROS 2 <-> ESP32 ASCII serial bridge for the DASE7503 logistics robot.
 
-固件侧只提供 USB-UART ASCII 行协议（见 src/communication/serial_protocol.* 与
-serial_console.*），本节点在树莓派侧把它翻译成 ROS 2 话题：
+This file is the contract boundary between the EC firmware (this repository,
+`src/communication/`) and the NAV stack (`dase7503-group-project`).  It is the
+only script the NAV launcher expects at `tools/ros_serial_bridge.py`:
 
-下行（ROS 2 -> 串口）
-  /cmd_vel   geometry_msgs/Twist   -> "vel <vx> <vy> <wz>"（底盘轮速闭环，需先 arm）
-  /lift_cmd  std_msgs/String       -> "lift up" / "lift down" / "lift stop"
-  /estop     std_msgs/Bool         -> "estop 1" / "estop 0"
+    bash scripts/nav.sh hardware start_bridge:=true \
+        bridge_root:=<this-repo> port:=/dev/ttyUSB0
 
-上行（串口 -> ROS 2）
-  O 帧 -> /wheel/odom     nav_msgs/Odometry（里程计输入，供 EKF 融合）
-  I 帧 -> /imu/data_raw   sensor_msgs/Imu（无姿态解算，orientation 标记为不可用）
-  L 帧 -> /lift_state     std_msgs/UInt8（0=落下，1=抬起，2=运动中）
+Topic contract (default names; the NAV launcher remaps them, unchanged, to the
+`/ec/...` namespace consumed by `robot_bringup/ec_adapter`):
 
-约定：
-  1. 桥接节点本身不发布 odom->base_link 变换，该变换由树莓派侧 EKF 唯一发布，
-     否则会出现双发布冲突。
-  2. 固件 telemetryPeriod 当前为 100 ms（10 Hz），因此 /wheel/odom 与
-     /imu/data_raw 的实际频率就是 10 Hz，接口表要求的高于 30/50 Hz 需固件侧调整。
-  3. 固件在 500 ms 内收不到 vel 命令会自动锁停，本节点再加一层看门狗，
-     超时后主动补发零速，避免链路静默时底盘保持运动。
+    publish  /wheel/odom    nav_msgs/Odometry   frame odom -> base_link
+    publish  /imu/data_raw  sensor_msgs/Imu     frame base_link, no attitude
+    publish  /lift_state    std_msgs/UInt8      0 = lowered, 1 = raised,
+                                                2 = no active target
+    subscribe /cmd_vel      geometry_msgs/Twist -> "vel vx vy wz"
+    subscribe /lift_cmd     std_msgs/String     -> "lift up|down|stop"
+
+Wire protocol is exactly the firmware's ASCII serial console
+(`src/communication/serial_protocol.cpp`, `serial_console.cpp`), 115200 8N1:
+
+    host -> board : arm | stop | estop 0|1 | status | vel <vx> <vy> <wz>
+                    | lift up | lift down | lift stop
+    board -> host : "OK" / "ERR ..." acknowledgment, plus a 10 Hz telemetry
+                    block: S / E / O / I / L lines, one record per line.
+
+Deliberate limits, matching what the firmware actually measures:
+
+* No lift arrival signal exists.  `/lift_state` republishes the commanded
+  target reported in the L line; it is not evidence that the mechanism arrived.
+* The IMU is published in raw chip axes with zero covariances; no orientation
+  is fabricated.  Physical axis sign and mounting rotation are NAV-side
+  calibration decisions (`ec_20261025.yaml`), not something this file invents.
+* No `arm` and no keepalive traffic is generated unless explicitly requested by
+  parameter.  The firmware's own 500 ms command watchdog must stay able to
+  stop the chassis.
 """
 
+import json
 import math
-import sys
 import threading
 import time
 
-try:
-    import rclpy
-    from geometry_msgs.msg import Twist
-    from nav_msgs.msg import Odometry
-    from rclpy.node import Node
-    from sensor_msgs.msg import Imu
-    from std_msgs.msg import Bool, String, UInt8
-except ImportError as error:  # 未 source ROS 2 环境时给出明确提示，不抛出堆栈
-    print("未找到 ROS 2 Python 环境，请先执行：source /opt/ros/jazzy/setup.bash",
-          file=sys.stderr)
-    print(f"导入失败：{error}", file=sys.stderr)
-    raise SystemExit(2)
+import rclpy
+from geometry_msgs.msg import Twist
+from nav_msgs.msg import Odometry
+from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
+from sensor_msgs.msg import Imu
+from std_msgs.msg import String, UInt8
 
 try:
     import serial
-except ImportError:
-    print("缺少 pyserial，请执行：sudo apt install python3-serial", file=sys.stderr)
-    raise SystemExit(2)
+except ImportError as error:  # pragma: no cover - dependency guard
+    raise SystemExit(
+        'pyserial is required: sudo apt install python3-serial') from error
 
 
-LIFT_LOWERED = 0
-LIFT_RAISED = 1
-LIFT_MOVING = 2
+# Lift command texts accepted from /lift_cmd.  The full UART form ("lift up")
+# is also the firmware form, so it is forwarded verbatim; the bare verbs are
+# accepted for convenience and prefixed here.
+LIFT_TEXTS = {
+    'lift up': 'lift up',
+    'lift down': 'lift down',
+    'lift stop': 'lift stop',
+    'up': 'lift up',
+    'down': 'lift down',
+    'stop': 'lift stop',
+}
+
+# Telemetry record lengths, including the tag token itself.
+RECORD_TOKENS = {'S': 14, 'E': 13, 'O': 8, 'I': 9, 'L': 7, 'P': 9}
+MAX_LINE = 1024
 
 
-def clamp(value, limit):
-    """把不可信的外部输入限制在固件允许的速度范围内。"""
-    if not math.isfinite(value):
-        return 0.0
-    return max(-limit, min(limit, value))
+def yaw_to_quaternion(yaw):
+    """Planar yaw to a unit quaternion; roll and pitch stay exactly zero."""
+    return 0.0, 0.0, math.sin(yaw * 0.5), math.cos(yaw * 0.5)
 
 
 class SerialBridge(Node):
-    """把 ESP32 串口控制台桥接到 ROS 2 话题。"""
-
     def __init__(self):
-        super().__init__("esp32_serial_bridge")
-        self.declare_parameter("port", "/dev/ttyUSB0")
-        self.declare_parameter("baud", 115200)
-        self.declare_parameter("cmd_vel_topic", "/cmd_vel")
-        self.declare_parameter("wheel_odom_topic", "/wheel/odom")
-        self.declare_parameter("imu_topic", "/imu/data_raw")
-        self.declare_parameter("lift_cmd_topic", "/lift_cmd")
-        self.declare_parameter("lift_state_topic", "/lift_state")
-        self.declare_parameter("estop_topic", "/estop")
-        self.declare_parameter("odom_frame", "odom")
-        self.declare_parameter("base_frame", "base_link")
-        # 与 src/config/robot_config.h 的 maxLinearSpeed / maxAngularSpeed 保持一致
-        self.declare_parameter("max_linear_speed", 0.5)
-        self.declare_parameter("max_angular_speed", 2.0)
-        # 与固件 commandTimeout（500 ms）对齐
-        self.declare_parameter("command_timeout", 0.5)
-        self.declare_parameter("min_command_period", 0.02)
-        self.declare_parameter("control_period", 0.02)
-        self.declare_parameter("serial_read_timeout", 0.05)
-        self.declare_parameter("arm_attempts", 3)
-        self.declare_parameter("boot_delay", 2.0)
+        super().__init__('serial_bridge')
+        defaults = {
+            'port': '/dev/ttyUSB0',
+            'baud': 115200,
+            'frame_odom': 'odom',
+            'frame_base': 'base_link',
+            'frame_imu': 'base_link',
+            'cmd_timeout_s': 0.25,
+            'telemetry_timeout_s': 0.5,
+            'max_linear_speed': 0.5,
+            'max_angular_speed': 2.0,
+            'arm_on_start': False,
+            'keepalive_period_s': 0.0,
+            'publish_odom': True,
+            'publish_imu': True,
+            'publish_lift_state': True,
+            'publish_status': True,
+            'reconnect_period_s': 2.0,
+        }
+        for key, value in defaults.items():
+            self.declare_parameter(key, value)
+        self.settings = {key: self.get_parameter(key).value for key in defaults}
 
-        self._port = self.get_parameter("port").value
-        self._baud = int(self.get_parameter("baud").value)
-        self._odom_frame = self.get_parameter("odom_frame").value
-        self._base_frame = self.get_parameter("base_frame").value
-        self._max_linear = float(self.get_parameter("max_linear_speed").value)
-        self._max_angular = float(self.get_parameter("max_angular_speed").value)
-        self._command_timeout = float(self.get_parameter("command_timeout").value)
-        self._min_command_period = float(self.get_parameter("min_command_period").value)
-        self._control_period = float(self.get_parameter("control_period").value)
-        self._read_timeout = float(self.get_parameter("serial_read_timeout").value)
-        self._arm_attempts = int(self.get_parameter("arm_attempts").value)
-        self._boot_delay = float(self.get_parameter("boot_delay").value)
+        for key in ('cmd_timeout_s', 'telemetry_timeout_s', 'max_linear_speed',
+                    'max_angular_speed', 'reconnect_period_s'):
+            value = float(self.settings[key])
+            if not math.isfinite(value) or value <= 0.0:
+                raise ValueError(f'{key} must be finite and positive')
+            self.settings[key] = value
 
-        self._connection = None
         self._write_lock = threading.Lock()
-        self._command_lock = threading.Lock()
-        self._pending_velocity = None
+        self._state_lock = threading.Lock()
+        self._serial = None
         self._reader = None
-        self._running = threading.Event()
-        self._armed_event = threading.Event()
-        self._armed = False
-        self._estop_active = False
-        self._last_send = 0.0
-        self._last_drive = 0.0
+        self._stop_event = threading.Event()
+
+        self._latest = {}
+        self._odom_ready = False
+        self._imu_ready = False
+        self._lift_ready = False
+        self._state = {
+            'armed': None, 'motion_allowed': None, 'emergency_stopped': None,
+            'initialized': None, 'fault': None, 'imu_ready': None,
+        }
+        self._last_rx = None
+        self._last_cmd = None
+        self._last_cmd_text = None
         self._zero_sent = True
-        self._link_error_reported = False
-        self._timer = None
-        self._counts = {"odom": 0, "imu": 0, "lift": 0, "ok": 0, "err": 0}
+        self._arm_requested = False
+        self._rx_lines = 0
+        self._rx_errors = 0
+        self._tx_lines = 0
+        self._write_errors = 0
+        self._connected = False
+        self._last_connect_attempt = 0.0
 
-        self._odom_pub = self.create_publisher(
-            Odometry, self.get_parameter("wheel_odom_topic").value, 10)
-        self._imu_pub = self.create_publisher(
-            Imu, self.get_parameter("imu_topic").value, 10)
-        self._lift_pub = self.create_publisher(
-            UInt8, self.get_parameter("lift_state_topic").value, 10)
+        self.odom_pub = self.create_publisher(Odometry, '/wheel/odom', 10)
+        self.imu_pub = self.create_publisher(Imu, '/imu/data_raw',
+                                             qos_profile_sensor_data)
+        self.lift_pub = self.create_publisher(UInt8, '/lift_state', 10)
+        self.status_pub = self.create_publisher(String, '/serial_bridge/status', 10)
 
-        self.create_subscription(
-            Twist, self.get_parameter("cmd_vel_topic").value, self._on_cmd_vel, 10)
-        self.create_subscription(
-            String, self.get_parameter("lift_cmd_topic").value, self._on_lift_cmd, 10)
-        self.create_subscription(
-            Bool, self.get_parameter("estop_topic").value, self._on_estop, 10)
+        self.create_subscription(Twist, '/cmd_vel', self.on_cmd_vel, 10)
+        self.create_subscription(String, '/lift_cmd', self.on_lift_cmd, 10)
 
-    # ------------------------------------------------------------------ 启动
+        self.create_timer(0.01, self.on_timer)
+        self.create_timer(1.0, self.publish_status)
+        self.get_logger().warning(
+            f'Serial bridge on {self.settings["port"]} @ {self.settings["baud"]}: '
+            'lift state is a commanded target, not an arrival sensor; '
+            'IMU axes are raw chip axes with zero covariance')
 
-    def start(self):
-        if not self._open_serial():
-            return False
-        self._running.set()
-        self._reader = threading.Thread(
-            target=self._serial_loop, name="esp32_serial_reader", daemon=True)
-        self._reader.start()
-        if not self._arm_controller():
-            self.get_logger().error(
-                "连续多次没有收到固件 arm 确认，底盘未使能；请检查串口设备、"
-                "波特率与固件是否已烧录")
-            return False
-        self._timer = self.create_timer(self._control_period, self._on_control_timer)
-        self.get_logger().info(
-            f"桥接已启动：{self._port}@{self._baud}，速度上限 "
-            f"{self._max_linear:.2f} m/s / {self._max_angular:.2f} rad/s")
-        self.get_logger().warn(
-            "固件遥测周期为 10 Hz，/wheel/odom 与 /imu/data_raw 的实际频率受其限制")
-        return True
-
-    def _open_serial(self):
-        kwargs = dict(port=self._port, baudrate=self._baud,
-                      timeout=self._read_timeout, write_timeout=0.2)
-        try:
-            # exclusive 避免与 minicom/键盘脚本同时抢占同一个串口
-            self._connection = serial.Serial(exclusive=True, **kwargs)
-        except (TypeError, ValueError):
-            self._connection = serial.Serial(**kwargs)
-        except (serial.SerialException, OSError) as error:
-            self.get_logger().error(f"无法打开串口 {self._port}：{error}")
-            return False
-        return True
-
-    def _arm_controller(self):
-        # 打开串口会触发 DTR 复位，等固件启动完成后再发命令
-        time.sleep(self._boot_delay)
-        self._reset_input()
-        for attempt in range(1, self._arm_attempts + 1):
-            if self._send("arm") and self._armed_event.wait(1.5):
-                self._armed = True
-                self._last_drive = time.monotonic()
-                self._zero_sent = True
-                self.get_logger().info("底盘已使能（状态帧 armed=1）")
-                return True
-            self.get_logger().warn(f"第 {attempt} 次 arm 未获确认，准备重试")
-            time.sleep(0.2)
-            self._reset_input()
-        return False
-
-    def _reset_input(self):
-        connection = self._connection
-        if connection is None:
-            return
-        try:
-            connection.reset_input_buffer()
-        except (serial.SerialException, OSError):
-            pass
-
-    # ------------------------------------------------------------------ 串口
-
-    def _serial_loop(self):
-        while self._running.is_set() and rclpy.ok():
-            connection = self._connection
-            if connection is None:
-                break
-            try:
-                raw = connection.readline()
-            except (serial.SerialException, OSError) as error:
-                if self._running.is_set():
-                    self.get_logger().error(f"串口读取失败，桥接停止：{error}")
-                break
-            if not raw:
-                continue
-            line = raw.decode("ascii", errors="replace").strip()
-            if line:
-                self._handle_line(line)
-
-    def _handle_line(self, line):
-        fields = line.split()
-        if not fields:
-            return
-        tag = fields[0]
-        try:
-            if tag == "OK":
-                self._counts["ok"] += 1
-            elif tag == "ERR":
-                self._counts["err"] += 1
-                self.get_logger().warn(f"固件拒绝命令：{line}")
-            elif tag == "S":
-                self._on_status(fields)
-            elif tag == "O":
-                self._on_odometry(fields)
-            elif tag == "I":
-                self._on_imu(fields)
-            elif tag == "L":
-                self._on_lift(fields)
-            # E 行（轮速目标/实测/占空比）与 P 行（台架 PWM 回读）当前不上行到 ROS 2
-        except (IndexError, ValueError) as error:
-            self.get_logger().debug(f"无法解析遥测行 {line!r}：{error}")
-
-    def _on_status(self, fields):
-        # S <millis> <initialized> <armed> <motionAllowed> <estop> <fault>
-        #   <encoderReady> <imuReady> <speedReady> <bench> <motorOut>
-        #   <chassisCtl> <manual>
-        if len(fields) < 14:
-            return
-        armed = fields[3] == "1"
-        if armed and not self._armed_event.is_set():
-            self._armed_event.set()
-        if fields[5] == "1" and not self._estop_active:
-            self._estop_active = True
-            self.get_logger().warn("固件报告急停处于激活状态")
-        elif fields[5] == "0" and self._estop_active:
-            self._estop_active = False
-            self.get_logger().info("固件报告急停已解除")
-
-    def _on_odometry(self, fields):
-        # O <millis> <x> <y> <yaw> <vx> <vy> <wz>
-        if len(fields) != 8:
-            return
-        yaw = float(fields[4])
-        message = Odometry()
-        message.header.stamp = self.get_clock().now().to_msg()
-        message.header.frame_id = self._odom_frame
-        message.child_frame_id = self._base_frame
-        message.pose.pose.position.x = float(fields[2])
-        message.pose.pose.position.y = float(fields[3])
-        message.pose.pose.orientation.z = math.sin(yaw * 0.5)
-        message.pose.pose.orientation.w = math.cos(yaw * 0.5)
-        message.twist.twist.linear.x = float(fields[5])
-        message.twist.twist.linear.y = float(fields[6])
-        message.twist.twist.angular.z = float(fields[7])
-        # 编码器推算的位姿，协方差按经验值给出，供 EKF 参考
-        message.pose.covariance[0] = 0.02
-        message.pose.covariance[7] = 0.02
-        message.pose.covariance[35] = 0.05
-        message.twist.covariance[0] = 0.02
-        message.twist.covariance[7] = 0.02
-        message.twist.covariance[35] = 0.05
-        self._odom_pub.publish(message)
-        self._counts["odom"] += 1
-
-    def _on_imu(self, fields):
-        # I <millis> <ax> <ay> <az> <gx> <gy> <gz> <temp>，固件已使用 m/s² 与 rad/s
-        if len(fields) != 9:
-            return
-        message = Imu()
-        message.header.stamp = self.get_clock().now().to_msg()
-        message.header.frame_id = self._base_frame
-        # 固件不做姿态解算，用 -1 标记 orientation 不可用
-        message.orientation_covariance[0] = -1.0
-        message.linear_acceleration.x = float(fields[2])
-        message.linear_acceleration.y = float(fields[3])
-        message.linear_acceleration.z = float(fields[4])
-        message.angular_velocity.x = float(fields[5])
-        message.angular_velocity.y = float(fields[6])
-        message.angular_velocity.z = float(fields[7])
-        for index in (0, 4, 8):
-            message.angular_velocity_covariance[index] = 0.02
-            message.linear_acceleration_covariance[index] = 0.2
-        self._imu_pub.publish(message)
-        self._counts["imu"] += 1
-
-    def _on_lift(self, fields):
-        # L <outputsEnabled> <configured> <ready> <active> <target> <pulse>
-        if len(fields) != 7:
-            return
-        active = fields[4] == "1"
-        target = int(fields[5])
-        state = LIFT_MOVING if active else (
-            LIFT_RAISED if target == 1 else LIFT_LOWERED)
-        self._lift_pub.publish(UInt8(data=state))
-        self._counts["lift"] += 1
-
-    def _send(self, command):
-        with self._write_lock:
-            connection = self._connection
-            if connection is None or not connection.is_open:
-                return False
-            try:
-                connection.write((command + "\n").encode("ascii"))
-            except (serial.SerialException, OSError) as error:
-                if not self._link_error_reported:
-                    self._link_error_reported = True
-                    self.get_logger().error(f"串口写入失败：{error}")
-                return False
-        return True
-
-    # ------------------------------------------------------------------ 下行命令
-
-    def _on_cmd_vel(self, message):
-        if self._estop_active:
-            # 急停期间不让新的速度指令把车重新带起来
-            self.get_logger().warn(
-                "急停激活，忽略 /cmd_vel", throttle_duration_sec=2.0)
-            return
-        velocity = (clamp(message.linear.x, self._max_linear),
-                    clamp(message.linear.y, self._max_linear),
-                    clamp(message.angular.z, self._max_angular))
-        with self._command_lock:
-            self._pending_velocity = velocity
-
-    def _on_lift_cmd(self, message):
-        keyword = message.data.strip().lower()
-        command = {"up": "lift up", "raise": "lift up", "raised": "lift up",
-                   "down": "lift down", "lower": "lift down", "lowered": "lift down",
-                   "stop": "lift stop"}.get(keyword)
-        if command is None:
-            self.get_logger().warn(
-                f"未知的升降指令 {message.data!r}，仅支持 up/down/stop")
-            return
-        self._send(command)
-
-    def _on_estop(self, message):
-        active = bool(message.data)
-        if active == self._estop_active:
-            return
-        if self._send("estop 1" if active else "estop 0"):
-            self._estop_active = active
-            self.get_logger().warn("已下发急停" if active else "已解除急停")
-
-    # ------------------------------------------------------------------ 定时器
-
-    def _on_control_timer(self):
+    # ---------------------------------------------------------------- serial
+    def connect(self):
+        if self._connected:
+            return True
         now = time.monotonic()
-        with self._command_lock:
-            pending = self._pending_velocity
-            self._pending_velocity = None
-        if pending is not None:
-            if now - self._last_send >= self._min_command_period:
-                if self._send("vel %.4f %.4f %.4f" % pending):
-                    self._last_send = now
-                    self._last_drive = now
-                    self._zero_sent = False
-            else:
-                # 频率高于串口容忍度时保留最新一帧，由下一个周期发出
-                with self._command_lock:
-                    if self._pending_velocity is None:
-                        self._pending_velocity = pending
-            return
-        if (not self._zero_sent and not self._estop_active and
-                now - self._last_drive > self._command_timeout):
-            if self._send("vel 0.0000 0.0000 0.0000"):
-                self._zero_sent = True
-                self.get_logger().warn(
-                    f"{self._command_timeout:.1f}s 未收到 /cmd_vel，已补发零速")
+        if now - self._last_connect_attempt < self.settings['reconnect_period_s']:
+            return False
+        self._last_connect_attempt = now
+        try:
+            self._serial = serial.Serial(
+                str(self.settings['port']), int(self.settings['baud']),
+                bytesize=serial.EIGHTBITS, parity=serial.PARITY_NONE,
+                stopbits=serial.STOPBITS_ONE, timeout=0.1, write_timeout=0.2)
+        except (OSError, ValueError) as error:
+            self._serial = None
+            self.get_logger().warning(
+                f'Cannot open {self.settings["port"]}: {error}',
+                throttle_duration_sec=10.0)
+            return False
+        self._stop_event.clear()
+        self._reader = threading.Thread(target=self.read_loop, name='serial-reader',
+                                        daemon=True)
+        self._reader.start()
+        self._connected = True
+        self.get_logger().info(f'Serial port opened: {self.settings["port"]}')
+        return True
 
-    # ------------------------------------------------------------------ 退出
+    def write_line(self, text):
+        """Send one ASCII line.  Only this file may compose command lines."""
+        if any(ch in text for ch in '\r\n\x00'):
+            self.get_logger().error('Refusing embedded newline or NUL in command')
+            return False
+        payload = (text + '\n').encode('ascii', errors='strict')
+        if len(payload) > 95:
+            self.get_logger().error(f'Command too long for firmware parser: {text!r}')
+            return False
+        port = self._serial
+        if port is None:
+            return False
+        try:
+            with self._write_lock:
+                port.write(payload)
+                port.flush()
+            self._tx_lines += 1
+            return True
+        except (OSError, serial.SerialException) as error:
+            self._write_errors += 1
+            self.get_logger().error(f'Serial write failed: {error}')
+            self.drop_port()
+            return False
+
+    def drop_port(self):
+        self._connected = False
+        port, self._serial = self._serial, None
+        if port is not None:
+            try:
+                port.close()
+            except (OSError, serial.SerialException):
+                pass
+
+    def read_loop(self):
+        buffer = bytearray()
+        port = self._serial
+        while not self._stop_event.is_set() and port is not None:
+            try:
+                chunk = port.read(256)
+            except (OSError, serial.SerialException, TypeError):
+                break
+            if not chunk:
+                continue
+            buffer.extend(chunk)
+            while True:
+                index = buffer.find(b'\n')
+                if index < 0:
+                    break
+                raw = bytes(buffer[:index])
+                del buffer[:index + 1]
+                if len(raw) > MAX_LINE:
+                    self._rx_errors += 1
+                    continue
+                self.handle_line(raw.decode('ascii', errors='replace').strip('\r'))
+            if len(buffer) > MAX_LINE * 4:
+                buffer.clear()
+        self.drop_port()
+
+    # ------------------------------------------------------------- telemetry
+    def handle_line(self, line):
+        if not line:
+            return
+        parts = line.split()
+        tag = parts[0]
+        if tag in ('OK',):
+            return
+        if tag == 'ERR':
+            self.get_logger().warning(f'Firmware rejected a command: {line}')
+            return
+        expected = RECORD_TOKENS.get(tag)
+        if expected is None or len(parts) != expected:
+            self._rx_errors += 1
+            error = f'Unrecognised telemetry record: {line[:80]}'
+            self.get_logger().warning(error, throttle_duration_sec=5.0)
+            return
+        try:
+            values = [float(token) for token in parts[1:]]
+        except ValueError:
+            self._rx_errors += 1
+            return
+        if not all(math.isfinite(value) for value in values):
+            self._rx_errors += 1
+            return
+        self._rx_lines += 1
+        if tag == 'S':
+            with self._state_lock:
+                self._state.update({
+                    'initialized': int(values[0]),
+                    'armed': int(values[1]),
+                    'motion_allowed': int(values[2]),
+                    'emergency_stopped': int(values[3]),
+                    'fault': int(values[4]),
+                    'encoder_ready': int(values[5]),
+                    'imu_ready': int(values[6]),
+                    'speed_ready': int(values[7]),
+                })
+            self._last_rx = time.monotonic()
+        elif tag == 'O':
+            # O <ms> x y yaw vx vy wz
+            self._latest['odom'] = values[1:]
+            self._odom_ready = True
+            self._last_rx = time.monotonic()
+        elif tag == 'I':
+            # I <ms> ax ay az gx gy gz temperature
+            self._latest['imu'] = values[1:]
+            self._imu_ready = True
+            self._last_rx = time.monotonic()
+        elif tag == 'L':
+            # L outputs_enabled configured ready active target pulse
+            self._latest['lift'] = values
+            self._lift_ready = True
+            self._last_rx = time.monotonic()
+
+    # -------------------------------------------------------------- commands
+    def on_cmd_vel(self, message):
+        values = (message.linear.x, message.linear.y, message.angular.z)
+        if not all(math.isfinite(value) for value in values):
+            self.get_logger().error('Non-finite velocity received; forcing zero')
+            self.command_zero()
+            return
+        linear = math.hypot(values[0], values[1])
+        scale = 1.0
+        limit = self.settings['max_linear_speed']
+        if linear > limit:
+            scale = limit / linear
+        angular = max(-self.settings['max_angular_speed'],
+                      min(self.settings['max_angular_speed'], values[2]))
+        vx, vy = values[0] * scale, values[1] * scale
+        self.write_line(f'vel {vx:.5f} {vy:.5f} {angular:.5f}')
+        self._last_cmd = time.monotonic()
+        self._last_cmd_text = f'vel {vx:.5f} {vy:.5f} {angular:.5f}'
+        self._zero_sent = vx == 0.0 and vy == 0.0 and angular == 0.0
+
+    def on_lift_cmd(self, message):
+        text = LIFT_TEXTS.get(message.data.strip().lower())
+        if text is None:
+            self.get_logger().warning(
+                f'Ignoring /lift_cmd {message.data!r}; expected lift up/down/stop')
+            return
+        self.write_line(text)
+        self._last_cmd_text = text
+
+    def command_zero(self):
+        self.write_line('vel 0.0 0.0 0.0')
+        self._last_cmd = time.monotonic()
+        self._last_cmd_text = 'vel 0.0 0.0 0.0'
+        self._zero_sent = True
+
+    # ---------------------------------------------------------------- timers
+    def on_timer(self):
+        if not self.connect():
+            return
+        now = time.monotonic()
+        self.publish_telemetry(now)
+        self.check_watchdogs(now)
+        self.maybe_arm()
+
+    def publish_telemetry(self, now):
+        fresh = self._last_rx is not None and \
+            now - self._last_rx <= self.settings['telemetry_timeout_s']
+        if not fresh:
+            return
+        stamp = self.get_clock().now().to_msg()
+
+        if self.settings['publish_odom'] and self._odom_ready:
+            x, y, yaw, vx, vy, wz = self._latest['odom']
+            message = Odometry()
+            message.header.stamp = stamp
+            message.header.frame_id = str(self.settings['frame_odom'])
+            message.child_frame_id = str(self.settings['frame_base'])
+            message.pose.pose.position.x = x
+            message.pose.pose.position.y = y
+            message.pose.pose.position.z = 0.0
+            (message.pose.pose.orientation.x, message.pose.pose.orientation.y,
+             message.pose.pose.orientation.z, message.pose.pose.orientation.w) = \
+                yaw_to_quaternion(yaw)
+            message.twist.twist.linear.x = vx
+            message.twist.twist.linear.y = vy
+            message.twist.twist.angular.z = wz
+            # Encoder dead reckoning: planar pose, unbounded yaw growth.
+            message.pose.covariance = [
+                0.02, 0.0, 0.0, 0.0, 0.0, 0.0,
+                0.0, 0.02, 0.0, 0.0, 0.0, 0.0,
+                0.0, 0.0, 1e6, 0.0, 0.0, 0.0,
+                0.0, 0.0, 0.0, 1e6, 0.0, 0.0,
+                0.0, 0.0, 0.0, 0.0, 1e6, 0.0,
+                0.0, 0.0, 0.0, 0.0, 0.0, 0.05]
+            message.twist.covariance = [
+                0.01, 0.0, 0.0, 0.0, 0.0, 0.0,
+                0.0, 0.01, 0.0, 0.0, 0.0, 0.0,
+                0.0, 0.0, 1e6, 0.0, 0.0, 0.0,
+                0.0, 0.0, 0.0, 1e6, 0.0, 0.0,
+                0.0, 0.0, 0.0, 0.0, 1e6, 0.0,
+                0.0, 0.0, 0.0, 0.0, 0.0, 0.02]
+            self.odom_pub.publish(message)
+
+        if self.settings['publish_imu'] and self._imu_ready:
+            ax, ay, az, gx, gy, gz, _temperature = self._latest['imu']
+            message = Imu()
+            message.header.stamp = stamp
+            message.header.frame_id = str(self.settings['frame_imu'])
+            message.angular_velocity.x = gx
+            message.angular_velocity.y = gy
+            message.angular_velocity.z = gz
+            message.linear_acceleration.x = ax
+            message.linear_acceleration.y = ay
+            message.linear_acceleration.z = az
+            # Zero covariance: the firmware reports no calibrated noise model.
+            message.angular_velocity_covariance = [0.0] * 9
+            message.linear_acceleration_covariance = [0.0] * 9
+            # No attitude is fused on the board; state that explicitly.
+            message.orientation_covariance = [-1.0, 0.0, 0.0,
+                                              0.0, 0.0, 0.0,
+                                              0.0, 0.0, 0.0]
+            self.imu_pub.publish(message)
+
+        if self.settings['publish_lift_state'] and self._lift_ready:
+            _enabled, _configured, _ready, _active, target, _pulse = \
+                self._latest['lift']
+            value = int(target)
+            self.lift_pub.publish(UInt8(data=value if value in (0, 1) else 2))
+
+    def check_watchdogs(self, now):
+        if self._last_cmd is not None and not self._zero_sent and \
+                now - self._last_cmd >= self.settings['cmd_timeout_s']:
+            # One zero, then silence: the firmware's own 500 ms watchdog must
+            # still be able to stop and disarm the chassis.
+            self.command_zero()
+        period = self.settings['keepalive_period_s']
+        if period > 0.0 and self._last_cmd is not None and \
+                now - self._last_cmd >= period:
+            # Optional zero-velocity refresh keeps the board armed during
+            # bench work.  It never carries a non-zero velocity.
+            self.write_line('vel 0.0 0.0 0.0')
+            self._last_cmd = now
+            self._last_cmd_text = 'vel 0.0 0.0 0.0 (keepalive)'
+
+    def maybe_arm(self):
+        if not self.settings['arm_on_start'] or self._arm_requested:
+            return
+        with self._state_lock:
+            armed = self._state['armed']
+            fault = self._state['fault']
+        if armed is None:
+            return
+        if armed == 0 and fault == 0:
+            if self.write_line('arm'):
+                self._arm_requested = True
+                self.get_logger().warning(
+                    'arm_on_start: "arm" sent; chassis control is now enabled')
+        elif armed == 1:
+            self._arm_requested = True
+
+    def publish_status(self):
+        if not self.settings['publish_status']:
+            return
+        now = time.monotonic()
+        with self._state_lock:
+            state = dict(self._state)
+        report = {
+            'port': str(self.settings['port']),
+            'connected': self._connected,
+            'telemetry_fresh': self._last_rx is not None and
+            now - self._last_rx <= self.settings['telemetry_timeout_s'],
+            'telemetry_age_s': None if self._last_rx is None
+            else round(now - self._last_rx, 3),
+            'rx_lines': self._rx_lines,
+            'rx_errors': self._rx_errors,
+            'tx_lines': self._tx_lines,
+            'write_errors': self._write_errors,
+            'last_command': self._last_cmd_text,
+            'lift_state_source': 'commanded_target_only',
+            'firmware_state': state,
+            'physical_acceptance': False,
+        }
+        self.status_pub.publish(String(data=json.dumps(report)))
 
     def shutdown(self):
-        self._running.clear()
-        if self._timer is not None:
-            self.destroy_timer(self._timer)
-            self._timer = None
-        if self._connection is not None and self._connection.is_open:
-            # 退出前明确停车，比依赖固件超时更快
-            self._send("stop")
-        if self._reader is not None:
-            self._reader.join(timeout=1.0)
-        if self._connection is not None and self._connection.is_open:
-            try:
-                self._connection.close()
-            except (serial.SerialException, OSError):
-                pass
-        self.get_logger().info(
-            "桥接已关闭：里程计 %d 帧，IMU %d 帧，升降 %d 帧，ACK %d，拒绝 %d" %
-            (self._counts["odom"], self._counts["imu"], self._counts["lift"],
-             self._counts["ok"], self._counts["err"]))
+        self._stop_event.set()
+        if self._connected:
+            # Stop the chassis and disarm.  Lift holding is left untouched:
+            # a stop pulse can release servo torque.
+            self.write_line('stop')
+        self.drop_port()
 
 
-def main(argv=None):
-    rclpy.init(args=argv)
-    bridge = None
-    exit_code = 0
+def main(args=None):
+    rclpy.init(args=args)
+    node = None
     try:
-        bridge = SerialBridge()
-        if not bridge.start():
-            exit_code = 1
-        else:
-            rclpy.spin(bridge)
+        node = SerialBridge()
+        rclpy.spin(node)
     except KeyboardInterrupt:
         pass
     finally:
-        if bridge is not None:
-            bridge.shutdown()
-            bridge.destroy_node()
-        if rclpy.ok():
-            rclpy.shutdown()
-    return exit_code
+        if node is not None:
+            node.shutdown()
+            node.destroy_node()
+        rclpy.try_shutdown()
 
 
-if __name__ == "__main__":
-    raise SystemExit(main())
+if __name__ == '__main__':
+    main()
