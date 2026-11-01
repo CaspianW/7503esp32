@@ -57,6 +57,7 @@ void SerialConsole::update(RobotController &controller) {
     case CommandKind::status: telemetry(controller); break;
     case CommandKind::stop: controller.stop(); break;
     case CommandKind::arm: accepted = controller.arm(); break;
+    case CommandKind::disarm: controller.disarm(); break;
     case CommandKind::manualArm: accepted = controller.armManual(); break;
     case CommandKind::manualStop: controller.stop(); break;
     case CommandKind::emergencyStop:

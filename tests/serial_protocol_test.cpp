@@ -13,6 +13,8 @@
 int main() {
   using robot::CommandKind;
   assert(robot::parseSerialCommand("arm").kind == CommandKind::arm);
+  assert(robot::parseSerialCommand("disarm").kind == CommandKind::disarm);
+  assert(robot::parseSerialCommand("disarm now").kind == CommandKind::invalid);
   assert(robot::parseSerialCommand("manual arm").kind != CommandKind::invalid);
   assert(robot::parseSerialCommand("manual stop").kind != CommandKind::invalid);
   assert(robot::parseSerialCommand("status").kind == CommandKind::status);
