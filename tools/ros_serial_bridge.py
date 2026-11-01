@@ -122,6 +122,10 @@ class SerialBridge(Node):
         self._odom_ready = False
         self._imu_ready = False
         self._lift_ready = False
+        # Frame counters: the timer runs far faster than the 10 Hz telemetry, so
+        # each record must be forwarded once, not once per timer tick.
+        self._seq = {'odom': 0, 'imu': 0, 'lift': 0}
+        self._pub_seq = {'odom': 0, 'imu': 0, 'lift': 0}
         self._state = {
             'armed': None, 'motion_allowed': None, 'emergency_stopped': None,
             'initialized': None, 'fault': None, 'imu_ready': None,
@@ -282,16 +286,19 @@ class SerialBridge(Node):
             # O <ms> x y yaw vx vy wz
             self._latest['odom'] = values[1:]
             self._odom_ready = True
+            self._seq['odom'] += 1
             self._last_rx = time.monotonic()
         elif tag == 'I':
             # I <ms> ax ay az gx gy gz temperature
             self._latest['imu'] = values[1:]
             self._imu_ready = True
+            self._seq['imu'] += 1
             self._last_rx = time.monotonic()
         elif tag == 'L':
             # L outputs_enabled configured ready active target pulse
             self._latest['lift'] = values
             self._lift_ready = True
+            self._seq['lift'] += 1
             self._last_rx = time.monotonic()
 
     # -------------------------------------------------------------- commands
@@ -345,7 +352,8 @@ class SerialBridge(Node):
             return
         stamp = self.get_clock().now().to_msg()
 
-        if self.settings['publish_odom'] and self._odom_ready:
+        if self.settings['publish_odom'] and self._odom_ready and \
+                self._seq['odom'] != self._pub_seq['odom']:
             x, y, yaw, vx, vy, wz = self._latest['odom']
             message = Odometry()
             message.header.stamp = stamp
@@ -376,8 +384,10 @@ class SerialBridge(Node):
                 0.0, 0.0, 0.0, 0.0, 1e6, 0.0,
                 0.0, 0.0, 0.0, 0.0, 0.0, 0.02]
             self.odom_pub.publish(message)
+            self._pub_seq['odom'] = self._seq['odom']
 
-        if self.settings['publish_imu'] and self._imu_ready:
+        if self.settings['publish_imu'] and self._imu_ready and \
+                self._seq['imu'] != self._pub_seq['imu']:
             ax, ay, az, gx, gy, gz, _temperature = self._latest['imu']
             message = Imu()
             message.header.stamp = stamp
@@ -396,12 +406,15 @@ class SerialBridge(Node):
                                               0.0, 0.0, 0.0,
                                               0.0, 0.0, 0.0]
             self.imu_pub.publish(message)
+            self._pub_seq['imu'] = self._seq['imu']
 
-        if self.settings['publish_lift_state'] and self._lift_ready:
+        if self.settings['publish_lift_state'] and self._lift_ready and \
+                self._seq['lift'] != self._pub_seq['lift']:
             _enabled, _configured, _ready, _active, target, _pulse = \
                 self._latest['lift']
             value = int(target)
             self.lift_pub.publish(UInt8(data=value if value in (0, 1) else 2))
+            self._pub_seq['lift'] = self._seq['lift']
 
     def check_watchdogs(self, now):
         if self._last_cmd is not None and not self._zero_sent and \
@@ -449,6 +462,7 @@ class SerialBridge(Node):
             else round(now - self._last_rx, 3),
             'rx_lines': self._rx_lines,
             'rx_errors': self._rx_errors,
+            'telemetry_frames': dict(self._seq),
             'tx_lines': self._tx_lines,
             'write_errors': self._write_errors,
             'last_command': self._last_cmd_text,
