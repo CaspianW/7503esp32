@@ -1,8 +1,8 @@
 /**
  * @file lift_control_test.cpp
- * @brief Host tests for lift endpoints and independence from chassis emergency stop.
+ * @brief Host tests for lift endpoints, raw pulses and chassis emergency stop.
  * @author Caspian Wu
- * @date 2026-10-24
+ * @date 2026-10-26
  * @version 0.1.0
  * @copyright Copyright (c) 2026 Caspian Wu.
  */
@@ -40,8 +40,10 @@ int main() {
 
   assert(controller.liftConfigured());
   assert(fakeAttached[robot::board::servoS2] == 4);
-  assert(fakePwm[4] == 0); // 上电初始化PWM，但未收到目标前不输出脉冲
-  assert(!controller.liftActive());
+  assert(fakePwm[4] == pulseDuty(robot::config::liftLoweredPulse));
+  assert(controller.liftActive());
+  assert(controller.liftTarget() == 0);
+  assert(controller.liftPulse() == robot::config::liftLoweredPulse);
 
   // 收到位置命令即可输出，不需要单独 arm。
   assert(controller.commandLift(robot::LiftPosition::raised));
@@ -85,23 +87,37 @@ int main() {
   assert(fakePwm[4] == pulseDuty(robot::config::liftLoweredPulse));
   assert(fakeAttached[robot::board::servoS2] == 4);
 
-  // 直接输入数字已不是有效舵机命令；拒绝时舵机继续保持原端点脉冲。
+  // 单独输入500～2500的整数会直接更新脉宽，且不需要单独使能。
   Serial.output.clear();
   Serial.input = "750\n";
   console.update(controller);
   assert(controller.liftActive());
-  assert(controller.liftPulse() == robot::config::liftLoweredPulse);
-  assert(fakePwm[4] == pulseDuty(robot::config::liftLoweredPulse));
+  assert(controller.liftTarget() == 2);
+  assert(controller.liftPulse() == 750);
+  assert(fakePwm[4] == pulseDuty(750));
   assert(fakeAttached[robot::board::servoS2] == 4);
-  assert(Serial.output.find("ERR command_or_state\n") != std::string::npos);
+  assert(Serial.output.find("OK\n") != std::string::npos);
 
-  // 标定范围内的数字同样不能控制舵机；只有 lift up/down 可输出端点。
+  // 上下边界都可输出；越界输入保持上次脉宽。
   Serial.output.clear();
-  Serial.input = "1700\n";
+  Serial.input = "500\n";
   console.update(controller);
   assert(controller.liftActive());
-  assert(controller.liftPulse() == robot::config::liftLoweredPulse);
-  assert(fakePwm[4] == pulseDuty(robot::config::liftLoweredPulse));
+  assert(controller.liftPulse() == 500);
+  assert(fakePwm[4] == pulseDuty(500));
+  assert(Serial.output.find("OK\n") != std::string::npos);
+  Serial.input = "2500\n";
+  console.update(controller);
+  assert(controller.liftPulse() == 2500);
+  assert(fakePwm[4] == pulseDuty(2500));
+  assert(!controller.commandLiftPulse(499));
+  assert(!controller.commandLiftPulse(2501));
+  assert(controller.liftPulse() == 2500);
+  Serial.output.clear();
+  Serial.input = "2501\n";
+  console.update(controller);
+  assert(controller.liftPulse() == 2500);
+  assert(fakePwm[4] == pulseDuty(2500));
   assert(Serial.output.find("ERR command_or_state\n") != std::string::npos);
 
   Serial.output.clear();

@@ -1,8 +1,8 @@
 /**
  * @file serial_protocol.cpp
- * @brief Validated chassis, lift-endpoint and emergency-stop command parsing.
+ * @brief Validated chassis, lift pulse and emergency-stop command parsing.
  * @author Caspian Wu
- * @date 2026-10-22
+ * @date 2026-10-26
  * @version 0.1.0
  * @copyright Copyright (c) 2026 Caspian Wu.
  */
@@ -40,6 +40,16 @@ SerialCommand parseSerialCommand(const char *line) {
     if (!strcmp(token[0], "status")) out.kind = CommandKind::status;
     if (!strcmp(token[0], "arm")) out.kind = CommandKind::arm;
     if (!strcmp(token[0], "stop")) out.kind = CommandKind::stop;
+    if (out.kind == CommandKind::invalid &&
+        isdigit(static_cast<unsigned char>(token[0][0]))) {
+      errno = 0;
+      char *end = nullptr;
+      const unsigned long pulse = strtoul(token[0], &end, 10);
+      if (!*end && errno == 0 && pulse >= 500 && pulse <= 2500) {
+        out.kind = CommandKind::liftPulse;
+        out.pulse = static_cast<uint16_t>(pulse);
+      }
+    }
   } else if (count == 2 && !strcmp(token[0], "manual")) {
     if (!strcmp(token[1], "arm")) out.kind = CommandKind::manualArm;
     if (!strcmp(token[1], "stop")) out.kind = CommandKind::manualStop;

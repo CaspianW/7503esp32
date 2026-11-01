@@ -1,8 +1,8 @@
 /**
  * @file serial_protocol_test.cpp
- * @brief Malformed serial commands cannot refresh velocity authority.
+ * @brief Validate serial commands, including bounded lift pulse input.
  * @author Caspian Wu
- * @date 2026-10-22
+ * @date 2026-10-26
  * @version 0.1.0
  * @copyright Copyright (c) 2026 Caspian Wu.
  */
@@ -33,13 +33,20 @@ int main() {
   assert(robot::parseSerialCommand("lift stop").kind == CommandKind::liftStop);
   assert(robot::parseSerialCommand("lift up").lift == robot::LiftPosition::raised);
   assert(robot::parseSerialCommand("lift down").lift == robot::LiftPosition::lowered);
-  assert(robot::parseSerialCommand("500").kind == CommandKind::invalid);
-  assert(robot::parseSerialCommand("1700").kind == CommandKind::invalid);
-  assert(robot::parseSerialCommand("2500").kind == CommandKind::invalid);
+  for (const auto &value : {500, 1700, 2500}) {
+    command = robot::parseSerialCommand(std::to_string(value).c_str());
+    assert(command.kind == CommandKind::liftPulse);
+    assert(command.pulse == value);
+  }
+  assert(robot::parseSerialCommand("499").kind == CommandKind::invalid);
+  assert(robot::parseSerialCommand("2501").kind == CommandKind::invalid);
   assert(robot::parseSerialCommand("0").kind == CommandKind::invalid);
   assert(robot::parseSerialCommand("3000").kind == CommandKind::invalid);
   assert(robot::parseSerialCommand("lift raw 2500").kind == CommandKind::invalid);
   assert(robot::parseSerialCommand("750.5").kind == CommandKind::invalid);
+  assert(robot::parseSerialCommand("+750").kind == CommandKind::invalid);
+  assert(robot::parseSerialCommand("750us").kind == CommandKind::invalid);
+  assert(robot::parseSerialCommand("750 800").kind == CommandKind::invalid);
   assert(robot::parseSerialCommand("lift up extra").kind == CommandKind::invalid);
   for (const char *line : {"", "vel nan 0 0", "vel inf 0 0", "vel 1e99 0 0",
        "vel 0 0", "vel 0 0 0 x", "vel 1x 0 0", "arm x", "estop 2", "vel 0\n0 0",

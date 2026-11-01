@@ -1,8 +1,8 @@
 /**
  * @file lift_controller.cpp
- * @brief Calibrated lift endpoint commands.
+ * @brief Calibrated lift endpoints and bounded pulse commands.
  * @author Caspian Wu
- * @date 2026-10-22
+ * @date 2026-10-26
  * @version 0.1.0
  * @copyright Copyright (c) 2026 Caspian Wu.
  */
@@ -36,6 +36,12 @@ void LiftController::request(LiftPosition target) {
   if (!servo_) return;
   if (target == LiftPosition::lowered) servo_->writePulse(loweredPulse_);
   if (target == LiftPosition::raised) servo_->writePulse(raisedPulse_);
+}
+
+bool LiftController::requestPulse(uint16_t pulse) {
+  if (!servo_ || pulse < minPulse || pulse > maxPulse) return false;
+  servo_->writePulse(pulse);
+  return true;
 }
 
 void LiftController::stop() {

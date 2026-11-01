@@ -34,7 +34,15 @@ def parse_args():
         "--duty", type=float, default=0.7,
         help="开环测试占空比，范围0～1，默认0.7"
     )
+    parser.add_argument("--log-odom", action="store_true", help="显示里程计O行")
+    parser.add_argument("--log-imu", action="store_true", help="显示IMU的I行")
     return parser.parse_args()
+
+
+def should_log(line, log_odom, log_imu):
+    return (line.startswith(("S ", "E ")) or
+            (log_odom and line.startswith("O ")) or
+            (log_imu and line.startswith("I ")))
 
 
 def main():
@@ -45,6 +53,8 @@ def main():
     speed = getattr(args, "speed", 0.3)
     turn = getattr(args, "turn", 2.0)
     duty = getattr(args, "duty", 0.7)
+    log_odom = getattr(args, "log_odom", False)
+    log_imu = getattr(args, "log_imu", False)
     if not math.isfinite(speed) or speed <= 0.0:
         print("闭环平移速度必须是正数。", file=sys.stderr)
         return 2
@@ -171,6 +181,10 @@ def main():
             print(f"松开运动键立即停车；每个活动轮固定输出{duty * 100:g}%占空比。")
             print("保持运动键时，按-降低、按=提高占空比，每次变化1%。")
         print("E行：目标轮速FL/RL/FR/RR，实测轮速FL/RL/FR/RR，占空比FL/RL/FR/RR。")
+        if log_odom:
+            print("O行：时间戳、x、y、yaw、vx、vy、wz；x/y为世界坐标，速度为车体坐标。")
+        if log_imu:
+            print("I行：时间戳、加速度xyz、角速度xyz、温度；均为IMU原始轴。")
 
         pressed = set()
         last_velocity = None
@@ -292,7 +306,7 @@ def main():
                         armed = False
                         pressed.clear()
                         last_velocity = None
-                    elif line.startswith(("S ", "E ")):
+                    elif should_log(line, log_odom, log_imu):
                         print(f"ESP32: {line}")
 
             if not running:

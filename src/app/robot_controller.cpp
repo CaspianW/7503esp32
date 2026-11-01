@@ -2,7 +2,7 @@
  * @file robot_controller.cpp
  * @brief Scheduled chassis control, manual driving and lift pulse output.
  * @author Caspian Wu
- * @date 2026-10-22
+ * @date 2026-10-26
  * @version 0.1.0
  * @copyright Copyright (c) 2026 Caspian Wu.
  */
@@ -94,6 +94,11 @@ bool RobotController::begin() {
     if (!liftConfigured() || !initLift()) {
       fail(RobotFault::lift); return false;
     }
+    // 上电立即输出已标定的最低位脉宽，并持续保持该位置。
+    liftController_.request(LiftPosition::lowered);
+    liftTarget_ = 0;
+    liftPulse_ = config::liftLoweredPulse;
+    liftActive_ = true;
   }
   initialized_ = true;
   return true;
@@ -172,6 +177,18 @@ bool RobotController::commandLift(LiftPosition target) {
   liftController_.request(target);
   liftTarget_ = target == LiftPosition::raised ? 1 : 0;
   liftPulse_ = target == LiftPosition::raised ? config::liftRaisedPulse : config::liftLoweredPulse;
+  liftActive_ = true;
+  return true;
+}
+
+bool RobotController::commandLiftPulse(uint16_t pulse) {
+  if (pulse < 500 || pulse > 2500 || !initialized_ || benchMode_ ||
+      fault_ != RobotFault::none || !config::liftOutputsEnabled ||
+      !liftConfigured()) return false;
+  if (!initLift()) { fail(RobotFault::lift); return false; }
+  if (!liftController_.requestPulse(pulse)) return false;
+  liftTarget_ = 2; // 自定义脉宽，不对应已标定的 up/down 端点
+  liftPulse_ = pulse;
   liftActive_ = true;
   return true;
 }

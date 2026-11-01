@@ -2,7 +2,7 @@
  * @file lift_controller.h
  * @brief Lift mechanism controller interface.
  * @author Caspian Wu
- * @date 2026-09-28
+ * @date 2026-10-26
  * @version 0.1.0
  * @copyright Copyright (c) 2026 Caspian Wu.
  */
@@ -21,6 +21,7 @@ public:
   bool begin(ServoDriver &servo, uint16_t loweredPulse,
              uint16_t raisedPulse);
   void request(LiftPosition target);
+  bool requestPulse(uint16_t pulse); // 单位 µs，范围 500～2500
   void stop();
 
 private:

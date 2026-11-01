@@ -16,13 +16,19 @@
 static void tick(robot::RobotController &controller, uint32_t elapsed = 10000) {
   fakeNow += elapsed; controller.update();
 }
-static bool stopped() { for (auto duty : fakePwm) if (duty) return false; return true; }
+static bool stopped() {
+  // 底盘停车不关闭上电后持续保持最低位的舵机PWM。
+  for (uint8_t i = 0; i < robot::wheelCount; ++i)
+    if (fakePwm[i]) return false;
+  return true;
+}
 
 int main() {
   robot::RobotController controller;
   assert(controller.begin());
   assert(!controller.begin()); // 不能重启一次性模式
   assert(stopped());
+  if (robot::config::liftOutputsEnabled) assert(fakePwm[4] != 0);
   tick(controller);
   assert(controller.speedReady() ==
          (robot::config::encoderReadEnabled || robot::config::chassisControlEnabled));

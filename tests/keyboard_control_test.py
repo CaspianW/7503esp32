@@ -22,6 +22,17 @@ SPEC.loader.exec_module(keyboard_control)
 
 
 class KeyboardControlTest(unittest.TestCase):
+    def test_optional_odometry_and_imu_logs(self):
+        self.assertTrue(keyboard_control.should_log("S 100 1", False, False))
+        self.assertTrue(keyboard_control.should_log("E 0.1", False, False))
+        self.assertFalse(keyboard_control.should_log("O 100 1.0", False, False))
+        self.assertFalse(keyboard_control.should_log("I 100 0.0", False, False))
+        self.assertTrue(keyboard_control.should_log("O 100 1.0", True, False))
+        self.assertFalse(keyboard_control.should_log("I 100 0.0", True, False))
+        self.assertTrue(keyboard_control.should_log("I 100 0.0", False, True))
+        self.assertFalse(keyboard_control.should_log("O 100 1.0", False, True))
+        self.assertFalse(keyboard_control.should_log("OK", True, True))
+
     def test_dropped_input_stops_and_requires_rearm(self):
         ecodes = types.SimpleNamespace(
             EV_SYN=0,

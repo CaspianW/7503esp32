@@ -2,7 +2,7 @@
  * @file serial_console.cpp
  * @brief Serial command dispatch and telemetry without waiting for a host connection.
  * @author Caspian Wu
- * @date 2026-10-22
+ * @date 2026-10-26
  * @version 0.1.0
  * @copyright Copyright (c) 2026 Caspian Wu.
  */
@@ -70,6 +70,7 @@ void SerialConsole::update(RobotController &controller) {
       accepted = controller.setManualDuty(command.duty); break;
     case CommandKind::liftStop: controller.stopLift(); break;
     case CommandKind::liftTarget: accepted = controller.commandLift(command.lift); break;
+    case CommandKind::liftPulse: accepted = controller.commandLiftPulse(command.pulse); break;
     // 无效完整命令只拒绝，不改变执行器状态；底盘旧指令仍受超时保护。
     default: accepted = false; break;
     }

@@ -2,7 +2,7 @@
  * @file robot_controller.h
  * @brief Robot scheduling, telemetry, manual driving and latched fault handling.
  * @author Caspian Wu
- * @date 2026-10-22
+ * @date 2026-10-26
  * @version 0.1.0
  * @copyright Copyright (c) 2026 Caspian Wu.
  */
@@ -35,6 +35,7 @@ public:
   bool commandManualVelocity(const Twist2D &command);
   bool setManualDuty(float duty);
   bool commandLift(LiftPosition target);
+  bool commandLiftPulse(uint16_t pulse); // 单位 µs
   void stopLift();
   bool liftConfigured() const;
   bool liftReady() const { return liftReady_; }
