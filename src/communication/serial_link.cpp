@@ -1,3 +1,12 @@
+/**
+ * @file serial_link.cpp
+ * @brief Bounded UART command dispatch and binary telemetry.
+ * @author Caspian Wu
+ * @date 2026-11-01
+ * @version 0.1.0
+ * @copyright Copyright (c) 2026 Caspian Wu.
+ */
+
 #include "serial_link.h"
 #include "serial_telemetry.h"
 #include "../app/robot_controller.h"
@@ -50,9 +59,19 @@ bool SerialLink::dispatch(const SerialPacket &p, RobotController &c) {
   }
 }
 void SerialLink::update(RobotController &c) {
-  // Incomplete commands cannot be joined to a new packet after a long pause.
-  if (parser_.pending() && static_cast<uint32_t>(millis() - lastByteMs_) > 100)
-    parser_.reset();
+  const auto handle = [&](const SerialPacket &packet) {
+    const bool accepted = dispatch(packet, c);
+    const uint8_t response[] = {static_cast<uint8_t>(packet.type),
+                               static_cast<uint8_t>(accepted ? 0 : 1)};
+    uint8_t buffer[10];
+    const size_t size = encodeSerialPacket(buffer, sizeof(buffer), PacketType::ack, response, 2);
+    send(buffer, size);
+  };
+  // 超时只丢弃残缺帧，先恢复缓冲区中后续完整且校验通过的命令。
+  if (parser_.pending() && static_cast<uint32_t>(millis() - lastByteMs_) > 100) {
+    SerialPacket packet;
+    while (parser_.take(packet, true)) handle(packet);
+  }
   uint8_t budget = 64;
   while (budget-- && Serial.available()) {
     const int byte = Serial.read();
@@ -61,12 +80,7 @@ void SerialLink::update(RobotController &c) {
     SerialPacket packet;
     if (!parser_.feed(static_cast<uint8_t>(byte), packet)) continue;
     do {
-      const bool accepted = dispatch(packet, c);
-      const uint8_t response[] = {static_cast<uint8_t>(packet.type),
-                                 static_cast<uint8_t>(accepted ? 0 : 1)};
-      uint8_t buffer[10];
-      const size_t size = encodeSerialPacket(buffer, sizeof(buffer), PacketType::ack, response, 2);
-      send(buffer, size);
+      handle(packet);
     } while (parser_.take(packet));
   }
   const uint32_t now = micros();

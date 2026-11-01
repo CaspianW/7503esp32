@@ -1,3 +1,12 @@
+/**
+ * @file serial_protocol.h
+ * @brief Binary UART packet definitions and timeout-aware stream parser.
+ * @author Caspian Wu
+ * @date 2026-11-01
+ * @version 0.1.0
+ * @copyright Copyright (c) 2026 Caspian Wu.
+ */
+
 #pragma once
 #include <stddef.h>
 #include <stdint.h>
@@ -29,7 +38,8 @@ float readFloatLE(const uint8_t *data);
 class SerialPacketParser {
 public:
   bool feed(uint8_t byte, SerialPacket &packet);
-  bool take(SerialPacket &packet);
+  // 超时后跳过不完整候选帧，保留后面 CRC 正确的完整包。
+  bool take(SerialPacket &packet, bool expired = false);
   void reset() { size_ = 0; }
   bool pending() const { return size_ != 0; }
 private:

@@ -1,3 +1,12 @@
+/**
+ * @file serial_protocol.cpp
+ * @brief Binary UART encoding, CRC and stream recovery.
+ * @author Caspian Wu
+ * @date 2026-11-01
+ * @version 0.1.0
+ * @copyright Copyright (c) 2026 Caspian Wu.
+ */
+
 #include "serial_protocol.h"
 #include <limits>
 #include <string.h>
@@ -55,16 +64,25 @@ bool SerialPacketParser::feed(uint8_t byte, SerialPacket &packet) {
   buffer_[size_++] = byte;
   return take(packet);
 }
-bool SerialPacketParser::take(SerialPacket &packet) {
+bool SerialPacketParser::take(SerialPacket &packet, bool expired) {
   while (size_) {
     if (buffer_[0] != 0xAA) { discard(1); continue; }
-    if (size_ < 2) return false;
+    if (size_ < 2) {
+      if (expired) { discard(1); continue; }
+      return false;
+    }
     if (buffer_[1] != 0x55) { discard(1); continue; }
-    if (size_ < 4) return false;
+    if (size_ < 4) {
+      if (expired) { discard(1); continue; }
+      return false;
+    }
     const uint8_t length = buffer_[3];
     if (length > serialMaxPayload) { discard(1); continue; }
     const size_t total = length + 8;
-    if (size_ < total) return false;
+    if (size_ < total) {
+      if (expired) { discard(1); continue; }
+      return false;
+    }
     const uint16_t crc = static_cast<uint16_t>(buffer_[4 + length]) |
                          static_cast<uint16_t>(buffer_[5 + length]) << 8;
     if (buffer_[6 + length] != 0x0D || buffer_[7 + length] != 0x0A ||

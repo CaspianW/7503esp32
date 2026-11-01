@@ -2,7 +2,7 @@
  * @file robot_controller.cpp
  * @brief Scheduled chassis control, manual driving and lift pulse output.
  * @author Caspian Wu
- * @date 2026-10-22
+ * @date 2026-11-01
  * @version 0.1.0
  * @copyright Copyright (c) 2026 Caspian Wu.
  */
@@ -94,6 +94,11 @@ bool RobotController::begin() {
     if (!liftConfigured() || !initLift()) {
       fail(RobotFault::lift); return false;
     }
+    // 上电直接下降，经过动作时间后再上报下降完成位。
+    liftController_.request(LiftPosition::lowered, millis());
+    liftTarget_ = 0;
+    liftPulse_ = config::liftLoweredPulse;
+    liftActive_ = true;
   }
   initialized_ = true;
   return true;

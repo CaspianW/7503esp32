@@ -1,3 +1,12 @@
+/**
+ * @file serial_link_telemetry_test.cpp
+ * @brief UART telemetry and startup lift completion regressions.
+ * @author Caspian Wu
+ * @date 2026-11-01
+ * @version 0.1.0
+ * @copyright Copyright (c) 2026 Caspian Wu.
+ */
+
 #include "fakes/Arduino.h"
 #include "serial_test_helpers.h"
 #include "../src/communication/serial_link.h"
@@ -25,9 +34,12 @@ int main() {
   assert(robot::readU32LE(findPacket(values, PacketType::odometry)->data) == 100);
   assert(robot::readU32LE(findPacket(values, PacketType::imu)->data) == 100);
 
+  // 上电下降已开始；100ms 时重复下降不得重新计时。
   Serial.input = wire(PacketType::lift, {0}); link.update(c);
   assert(fakePwm[4] != 0 && !c.liftCompletionKnown());
-  for (int n = 0; n < 300; ++n) tick(c, link);
+  for (int n = 0; n < 289; ++n) tick(c, link);
+  assert(!c.liftCompletionKnown());
+  tick(c, link);
   values = packets(Serial.output);
   assert(c.liftState() == 0 && findPacket(values, PacketType::liftState));
   Serial.output.clear();

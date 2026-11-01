@@ -1,3 +1,12 @@
+/**
+ * @file serial_link_test.cpp
+ * @brief UART dispatch, watchdog and malformed-stream recovery tests.
+ * @author Caspian Wu
+ * @date 2026-11-01
+ * @version 0.1.0
+ * @copyright Copyright (c) 2026 Caspian Wu.
+ */
+
 #include "fakes/Arduino.h"
 #include "serial_test_helpers.h"
 #include "../src/communication/serial_link.h"
@@ -84,4 +93,27 @@ int main() {
   Serial.capacity = 0;
   send(wire(PacketType::lift, {1}));
   assert(c.liftActive() && Serial.output.empty()); // TX cannot block dispatch.
+  Serial.capacity = 2048;
+
+  // 假长帧头不得在超时清理时吞掉后续完整急停包。
+  send(std::string("\xAA\x55\x01\x20", 4) + wire(PacketType::emergencyStop, {1}));
+  assert(!c.emergencyStopped());
+  fakeNow += 101000;
+  link.update(c);
+  assert(c.emergencyStopped());
+  assert(acknowledged(Serial.output, PacketType::emergencyStop, 0));
+  send(wire(PacketType::emergencyStop, {0}));
+
+  // 超时恢复必须依次执行所有完整包，并丢弃末尾残片。
+  send(std::string("\xAA\x55\x01\x20", 4) +
+       wire(PacketType::lift, {0}) + wire(PacketType::liftStop) + complete.substr(0, 4));
+  fakeNow += 101000;
+  link.update(c);
+  assert(!c.liftActive());
+  assert(acknowledged(Serial.output, PacketType::lift, 0));
+  assert(acknowledged(Serial.output, PacketType::liftStop, 0));
+  send(complete.substr(4)); // 残片不能与新数据拼成旧命令。
+  assert(!c.liftActive());
+  send(complete);
+  assert(c.liftActive() && acknowledged(Serial.output, PacketType::lift, 0));
 }

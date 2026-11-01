@@ -2,7 +2,7 @@
  * @file robot_config.h
  * @brief Robot and chassis configuration parameters.
  * @author Caspian Wu
- * @date 2026-10-22
+ * @date 2026-11-01
  * @version 0.1.0
  * @copyright Copyright (c) 2026 Caspian Wu.
  */
@@ -20,8 +20,8 @@ constexpr float wheelDiameter = 0.065f; // 单位 m
 constexpr float wheelRadius = wheelDiameter * 0.5f; // 单位 m
 
 // 启用麦克纳姆轮运动前，需在组装好的底盘上实测以下尺寸。
-constexpr float wheelbase = 0.142f;  // 前后轮中心距，单位 m
-constexpr float trackWidth = 0.17f; // 左右轮中心距，单位 m
+constexpr float wheelbase = 0.150f;  // 前后轮中心距，单位 m
+constexpr float trackWidth = 0.255f; // 左右轮中心距，单位 m
 
 // Yahboom 标称编码器为 13 PPR、减速比为 1:20；其示例对 AB 两路的边沿计数，
 // 因此输出轴每转约对应 1040 个计数。
@@ -49,12 +49,12 @@ constexpr int8_t motorDirection[wheelCount] = {-1, -1, 1, 1};
 constexpr int8_t encoderDirection[wheelCount] = {1, 1, -1, -1};
 
 // MG996舵机无外部位置反馈；以下是控制脉宽，不是编码器读数。
-constexpr uint16_t liftLoweredPulse = 1700; // 单位 µs，已测底部
-constexpr uint16_t liftRaisedPulse = 500;   // 单位 µs，已测顶部
+constexpr uint16_t liftLoweredPulse = 2500; // 单位 µs，已测底部
+constexpr uint16_t liftRaisedPulse = 700;   // 单位 µs，已测顶部
 // 舵机上电即初始化PWM；端点须在500～2500µs内且互不相同。
 constexpr bool liftOutputsEnabled = true;
 constexpr uint8_t liftServoChannel = 1; // 0=S1(GPIO8)，1=S2(GPIO21)；当前接S2
-constexpr uint32_t liftTravelTimeMs = 3000; // 发出端点 PWM 后，3s 更新升降完成标志
+constexpr uint32_t liftTravelTimeMs = 3000; // 单位 ms，发出端点 PWM 后更新完成标志
 
 constexpr uint32_t controlPeriod = 10000;  // 单位 µs，100 Hz
 constexpr uint32_t imuPeriod = 10000;      // 单位 µs，100 Hz
