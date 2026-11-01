@@ -10,9 +10,12 @@ sources=(
   src/drivers/src/encoder.cpp src/drivers/src/motor_driver.cpp
   src/drivers/src/servo_driver.cpp tests/fakes/hardware.cpp tests/fakes/imu.cpp
 )
-for name in serial_protocol serial_telemetry serial_console serial_console_telemetry robot_controller_safety lift_control safety; do
+for name in serial_protocol serial_telemetry serial_link serial_link_telemetry robot_controller_safety lift_control lift_timing safety; do
   "${CXX:-g++}" -std=c++11 -Wall -Wextra -Werror -Itests/fakes \
     "tests/${name}_test.cpp" "${sources[@]}" -o "$test_build_dir/$name"
   "$test_build_dir/$name"
   echo "$name: PASS"
 done
+"${CXX:-g++}" -std=c++11 -Wall -Wextra -Werror -Itests/fakes -x c++ \
+  -c 7503esp32.ino -o "$test_build_dir/sketch.o"
+echo "sketch entry (host compile): PASS"

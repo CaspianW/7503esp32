@@ -16,6 +16,7 @@ constexpr int INPUT_PULLUP = 2;
 constexpr int OUTPUT = 1;
 constexpr int HIGH = 1;
 constexpr int LOW = 0;
+constexpr uint32_t SERIAL_8N1 = 0x800001c;
 extern uint32_t fakeNow;
 extern uint32_t fakePwm[8];
 extern uint32_t fakeFreq[8];
@@ -42,10 +43,16 @@ struct FakeSerial {
   std::string output;
   int capacity = 2048;
   void setTxBufferSize(size_t) {}
-  void begin(uint32_t) {}
+  uint32_t baud = 0;
+  uint32_t format = 0;
+  int rx = -1;
+  int tx = -1;
+  void begin(uint32_t value, uint32_t mode, int rxPin, int txPin) {
+    baud = value; format = mode; rx = rxPin; tx = txPin;
+  }
   int availableForWrite() { return capacity; }
   int available() { return static_cast<int>(input.size()); }
-  int read() { if (input.empty()) return -1; int c = input[0]; input.erase(0, 1); return c; }
+  int read() { if (input.empty()) return -1; int c = static_cast<uint8_t>(input[0]); input.erase(0, 1); return c; }
   size_t write(const uint8_t *data, size_t size) {
     output.append(reinterpret_cast<const char *>(data), size); return size;
   }

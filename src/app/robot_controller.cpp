@@ -173,7 +173,7 @@ bool RobotController::commandLift(LiftPosition target) {
       !config::liftOutputsEnabled ||
       !liftConfigured()) return false;
   if (!initLift()) { fail(RobotFault::lift); return false; }
-  liftController_.request(target);
+  liftController_.request(target, millis());
   liftTarget_ = target == LiftPosition::raised ? 1 : 0;
   liftPulse_ = target == LiftPosition::raised ? config::liftRaisedPulse : config::liftLoweredPulse;
   liftActive_ = true;
@@ -272,6 +272,7 @@ void RobotController::update() {
   }
   if (elapsed > config::maxControlGap) fail(RobotFault::timing);
   if (elapsed < config::controlPeriod) return;
+  liftController_.update(millis());
   lastControl_ = now;
   const float dt = elapsed * 0.000001f;
   const bool encoderRequired = config::chassisControlEnabled || config::encoderReadEnabled;

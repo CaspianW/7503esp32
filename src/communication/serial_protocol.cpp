@@ -1,91 +1,82 @@
-/**
- * @file serial_protocol.cpp
- * @brief Validated chassis, lift-endpoint and emergency-stop command parsing.
- * @author Caspian Wu
- * @date 2026-10-22
- * @version 0.1.0
- * @copyright Copyright (c) 2026 Caspian Wu.
- */
-
 #include "serial_protocol.h"
-
-#include <ctype.h>
-#include <errno.h>
-#include <math.h>
-#include <stdlib.h>
+#include <limits>
 #include <string.h>
 
 namespace robot {
-SerialCommand parseSerialCommand(const char *line) {
-  SerialCommand out;
-  if (!line) return out;
-  char buffer[96];
-  size_t size = 0;
-  while (line[size]) {
-    if (size >= sizeof(buffer) - 1 ||
-        (!isprint(static_cast<unsigned char>(line[size])) && line[size] != '\t'))
-      return out;
-    buffer[size] = line[size]; ++size;
+static_assert(sizeof(float) == 4 && std::numeric_limits<float>::is_iec559,
+              "Serial protocol requires IEEE-754 float32");
+
+uint16_t serialCrc16(const uint8_t *data, size_t size) {
+  uint16_t crc = 0xFFFF;
+  for (size_t i = 0; i < size; ++i) {
+    crc ^= data[i];
+    for (uint8_t bit = 0; bit < 8; ++bit)
+      crc = (crc & 1) ? static_cast<uint16_t>((crc >> 1) ^ 0xA001) : crc >> 1;
   }
-  buffer[size] = '\0';
-  char *context = nullptr;
-  char *token[5] = {};
-  size_t count = 0;
-  for (char *part = strtok_r(buffer, " \t", &context); part;
-       part = strtok_r(nullptr, " \t", &context)) {
-    if (count == 5) return out;
-    token[count++] = part;
+  return crc;
+}
+void writeU32LE(uint8_t *out, uint32_t value) {
+  for (uint8_t i = 0; i < 4; ++i) out[i] = static_cast<uint8_t>(value >> (8 * i));
+}
+uint32_t readU32LE(const uint8_t *data) {
+  uint32_t value = 0;
+  for (uint8_t i = 0; i < 4; ++i) value |= static_cast<uint32_t>(data[i]) << (8 * i);
+  return value;
+}
+void writeFloatLE(uint8_t *out, float value) {
+  uint32_t bits;
+  memcpy(&bits, &value, sizeof(bits));
+  writeU32LE(out, bits);
+}
+float readFloatLE(const uint8_t *data) {
+  const uint32_t bits = readU32LE(data);
+  float value;
+  memcpy(&value, &bits, sizeof(value));
+  return value;
+}
+size_t encodeSerialPacket(uint8_t *out, size_t capacity, PacketType type,
+                          const uint8_t *data, size_t size) {
+  if (!out || size > serialMaxPayload || capacity < size + 8 || (size && !data)) return 0;
+  out[0] = 0xAA; out[1] = 0x55;
+  out[2] = static_cast<uint8_t>(type); out[3] = static_cast<uint8_t>(size);
+  if (size) memcpy(out + 4, data, size);
+  const uint16_t crc = serialCrc16(out + 2, size + 2);
+  out[4 + size] = static_cast<uint8_t>(crc);
+  out[5 + size] = static_cast<uint8_t>(crc >> 8);
+  out[6 + size] = 0x0D; out[7 + size] = 0x0A;
+  return size + 8;
+}
+void SerialPacketParser::discard(size_t count) {
+  size_ -= count;
+  if (size_) memmove(buffer_, buffer_ + count, size_);
+}
+bool SerialPacketParser::feed(uint8_t byte, SerialPacket &packet) {
+  if (size_ == sizeof(buffer_)) discard(1);
+  buffer_[size_++] = byte;
+  return take(packet);
+}
+bool SerialPacketParser::take(SerialPacket &packet) {
+  while (size_) {
+    if (buffer_[0] != 0xAA) { discard(1); continue; }
+    if (size_ < 2) return false;
+    if (buffer_[1] != 0x55) { discard(1); continue; }
+    if (size_ < 4) return false;
+    const uint8_t length = buffer_[3];
+    if (length > serialMaxPayload) { discard(1); continue; }
+    const size_t total = length + 8;
+    if (size_ < total) return false;
+    const uint16_t crc = static_cast<uint16_t>(buffer_[4 + length]) |
+                         static_cast<uint16_t>(buffer_[5 + length]) << 8;
+    if (buffer_[6 + length] != 0x0D || buffer_[7 + length] != 0x0A ||
+        serialCrc16(buffer_ + 2, length + 2) != crc) {
+      discard(1); continue;
+    }
+    packet.type = static_cast<PacketType>(buffer_[2]);
+    packet.length = length;
+    if (length) memcpy(packet.data, buffer_ + 4, length);
+    discard(total);
+    return true;
   }
-  if (count == 1) {
-    if (!strcmp(token[0], "status")) out.kind = CommandKind::status;
-    if (!strcmp(token[0], "arm")) out.kind = CommandKind::arm;
-    if (!strcmp(token[0], "disarm")) out.kind = CommandKind::disarm;
-    if (!strcmp(token[0], "stop")) out.kind = CommandKind::stop;
-  } else if (count == 2 && !strcmp(token[0], "manual")) {
-    if (!strcmp(token[1], "arm")) out.kind = CommandKind::manualArm;
-    if (!strcmp(token[1], "stop")) out.kind = CommandKind::manualStop;
-  } else if (count == 2 && !strcmp(token[0], "lift")) {
-    if (!strcmp(token[1], "stop")) out.kind = CommandKind::liftStop;
-    if (!strcmp(token[1], "up") || !strcmp(token[1], "down")) {
-      out.kind = CommandKind::liftTarget;
-      out.lift = !strcmp(token[1], "up") ? LiftPosition::raised : LiftPosition::lowered;
-    }
-  } else if (count == 3 && !strcmp(token[0], "manual") &&
-             !strcmp(token[1], "duty")) {
-    errno = 0;
-    char *end = nullptr;
-    const float duty = strtof(token[2], &end);
-    if (end != token[2] && !*end && errno != ERANGE && isfinite(duty)) {
-      out.kind = CommandKind::manualDuty;
-      out.duty = duty;
-    }
-  } else if (count == 2 && !strcmp(token[0], "estop") &&
-             (!strcmp(token[1], "0") || !strcmp(token[1], "1"))) {
-    out.kind = CommandKind::emergencyStop;
-    out.active = token[1][0] == '1';
-  } else if (count == 4 && !strcmp(token[0], "vel")) {
-    float values[3];
-    for (size_t i = 0; i < 3; ++i) {
-      errno = 0;
-      char *end = nullptr;
-      values[i] = strtof(token[i + 1], &end);
-      if (end == token[i + 1] || *end || errno == ERANGE ||
-          !isfinite(values[i])) return out;
-    }
-    out.velocity = {values[0], values[1], values[2]};
-    out.kind = CommandKind::velocity;
-  } else if (count == 5 && !strcmp(token[0], "manual") && !strcmp(token[1], "vel")) {
-    float values[3];
-    for (size_t i = 0; i < 3; ++i) {
-      errno = 0;
-      char *end = nullptr;
-      values[i] = strtof(token[i + 2], &end);
-      if (end == token[i + 2] || *end || errno == ERANGE ||
-          !isfinite(values[i])) return out;
-    }
-    out.velocity = {values[0], values[1], values[2]};
-    out.kind = CommandKind::manualVelocity;
-  }
-  return out;
+  return false;
 }
 } // namespace robot

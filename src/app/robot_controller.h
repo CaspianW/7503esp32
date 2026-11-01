@@ -42,6 +42,8 @@ public:
   bool liftActive() const { return liftActive_; }
   uint8_t liftTarget() const { return liftActive_ ? liftTarget_ : 2; }
   uint16_t liftPulse() const { return liftActive_ ? liftPulse_ : 0; } // 单位 µs
+  bool liftCompletionKnown() const { return liftController_.completionKnown(); }
+  uint8_t liftState() const { return liftController_.completedState(); } // 3s 计时完成标志，非实测位置
   void setEmergencyStop(bool active);
   bool motionAllowed() const;
   bool initialized() const { return initialized_; }

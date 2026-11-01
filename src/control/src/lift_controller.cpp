@@ -27,20 +27,38 @@ bool LiftController::begin(ServoDriver &servo, uint16_t loweredPulse,
       loweredPulse != config::liftLoweredPulse ||
       raisedPulse != config::liftRaisedPulse) return false;
   servo_ = &servo;
+  targetApplied_ = false;
+  moving_ = false;
   loweredPulse_ = loweredPulse;
   raisedPulse_ = raisedPulse;
   return true;
 }
 
-void LiftController::request(LiftPosition target) {
-  if (!servo_) return;
+void LiftController::request(LiftPosition target, uint32_t nowMs) {
+  if (!servo_ || (target != LiftPosition::lowered && target != LiftPosition::raised)) return;
   if (target == LiftPosition::lowered) servo_->writePulse(loweredPulse_);
   if (target == LiftPosition::raised) servo_->writePulse(raisedPulse_);
+  // 重复的相同目标不重启计时；改变方向则重新等待完整动作时间。
+  if (targetApplied_ && target_ == target) return;
+  target_ = target;
+  targetApplied_ = true;
+  moving_ = true;
+  startedAtMs_ = nowMs;
+}
+
+void LiftController::update(uint32_t nowMs) {
+  if (moving_ && static_cast<uint32_t>(nowMs - startedAtMs_) >= config::liftTravelTimeMs) {
+    completed_ = target_;
+    completionKnown_ = true;
+    moving_ = false;
+  }
 }
 
 void LiftController::stop() {
   if (servo_) servo_->detach();
   servo_ = nullptr;
+  targetApplied_ = false;
+  moving_ = false; // 停止动作不会把未完成的目标标记为完成。
 }
 
 } // namespace robot

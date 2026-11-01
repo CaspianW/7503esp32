@@ -54,6 +54,7 @@ constexpr uint16_t liftRaisedPulse = 500;   // 单位 µs，已测顶部
 // 舵机上电即初始化PWM；端点须在500～2500µs内且互不相同。
 constexpr bool liftOutputsEnabled = true;
 constexpr uint8_t liftServoChannel = 1; // 0=S1(GPIO8)，1=S2(GPIO21)；当前接S2
+constexpr uint32_t liftTravelTimeMs = 3000; // 发出端点 PWM 后，3s 更新升降完成标志
 
 constexpr uint32_t controlPeriod = 10000;  // 单位 µs，100 Hz
 constexpr uint32_t imuPeriod = 10000;      // 单位 µs，100 Hz
