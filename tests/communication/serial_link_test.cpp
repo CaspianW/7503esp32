@@ -9,9 +9,9 @@
 
 #include "fakes/Arduino.h"
 #include "serial_test_helpers.h"
-#include "../src/communication/serial_link.h"
-#include "../src/app/robot_controller.h"
-#include "../src/config/board_pins.h"
+#include "../../src/communication/serial_link.h"
+#include "../../src/app/robot_controller.h"
+#include "../../src/config/board_pins.h"
 #include <limits>
 
 int main() {

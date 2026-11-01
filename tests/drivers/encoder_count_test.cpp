@@ -7,7 +7,7 @@
  * @copyright Copyright (c) 2026 Caspian Wu.
  */
 
-#include "../src/drivers/include/encoder.h"
+#include "../../src/drivers/include/encoder.h"
 
 #include <driver/pcnt.h>
 

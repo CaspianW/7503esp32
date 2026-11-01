@@ -58,8 +58,6 @@ constexpr uint32_t liftTravelTimeMs = 3000; // 单位 ms，发出端点 PWM 后�
 
 constexpr uint32_t controlPeriod = 10000;  // 单位 µs，100 Hz
 constexpr uint32_t imuPeriod = 10000;      // 单位 µs，100 Hz
-constexpr uint32_t odometryPeriod = 20000; // 单位 µs，50 Hz
-constexpr uint32_t rosSpinPeriod = 1000;   // 单位 µs，最高 1 kHz
 
 // 根据70%占空比约0.63～0.69m/s的空载实测值设置首轮闭环整定参数。
 // 首轮测试不使用D项，避免编码器量化噪声被放大。

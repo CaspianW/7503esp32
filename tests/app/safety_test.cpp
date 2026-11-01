@@ -7,7 +7,7 @@
  * @copyright Copyright (c) 2026 Caspian Wu.
  */
 
-#include "../src/app/safety.h"
+#include "../../src/app/safety.h"
 
 #include <cassert>
 

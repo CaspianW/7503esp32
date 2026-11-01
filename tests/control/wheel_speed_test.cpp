@@ -7,7 +7,7 @@
  * @copyright Copyright (c) 2026 Caspian Wu.
  */
 
-#include "../src/control/include/wheel_speed.h"
+#include "../../src/control/include/wheel_speed.h"
 
 #include <cassert>
 #include <cmath>

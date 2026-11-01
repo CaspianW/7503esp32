@@ -7,7 +7,7 @@
  * @copyright Copyright (c) 2026 Caspian Wu.
  */
 
-#include "../src/control/include/chassis_control.h"
+#include "../../src/control/include/chassis_control.h"
 #include <cassert>
 #include <math.h>
 int main() {

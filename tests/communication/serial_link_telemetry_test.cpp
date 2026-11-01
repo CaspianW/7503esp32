@@ -9,9 +9,9 @@
 
 #include "fakes/Arduino.h"
 #include "serial_test_helpers.h"
-#include "../src/communication/serial_link.h"
-#include "../src/app/robot_controller.h"
-#include "../src/config/robot_config.h"
+#include "../../src/communication/serial_link.h"
+#include "../../src/app/robot_controller.h"
+#include "../../src/config/robot_config.h"
 
 static void tick(robot::RobotController &c, robot::SerialLink &link) {
   fakeNow += 10000; c.update(); link.update(c);

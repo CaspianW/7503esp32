@@ -8,9 +8,9 @@
  */
 
 #include "fakes/Arduino.h"
-#include "../src/drivers/include/motor_driver.h"
-#include "../src/config/board_pins.h"
-#include "../src/config/robot_config.h"
+#include "../../src/drivers/include/motor_driver.h"
+#include "../../src/config/board_pins.h"
+#include "../../src/config/robot_config.h"
 #include <cassert>
 #include <math.h>
 int main() {

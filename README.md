@@ -17,13 +17,11 @@ src/communication/
   serial_link.*           # UART 收发、命令执行、周期遥测
   serial_protocol.*       # 帧头、长度、CRC、帧尾、字节序和流式解析
   serial_telemetry.*      # 里程计、IMU、升降完成位、控制状态打包
-  ros_bridge.*            # 未启用的原生 micro-ROS 占位接口
 src/common/robot_types.h # 控制与传感器数据类型
 src/config/               # 板卡引脚、轮位、参数和采样频率
 src/control/              # 麦轮逆解、轮速 PID、里程计、升降
 src/drivers/              # 编码器、IMU、电机 PWM、舵机 PWM
-tests/                    # 电脑端 C++ 测试与硬件替身
-tools/                    # 历史 ASCII 调试脚本，不适用当前二进制协议
+tests/                    # 按 communication/control/drivers/app 分组的电脑端回归
 ~~~
 
 板端上电后自动开始串口收发，每 100 ms 上报一次，不需要先使能底盘。
@@ -45,7 +43,7 @@ Arduino-ESP32 3.x 的 LEDC/PCNT 接口不同，升级前需要适配驱动。
 电脑端回归（g++，不需要硬件）：
 
 ~~~bash
-bash tests/run_communication_tests.sh
+bash tests/run_tests.sh
 ~~~
 
-测试不代替 ESP32 工具链编译、烧录与实板收发验证。
+17 个测试程序分为通信 4 个、控制 7 个、驱动 3 个、安全与调度 3 个。它们不参与烧录；修改相应模块或参数后可按组运行，见 [测试说明](tests/README.md)。测试不代替 ESP32 工具链编译、烧录与实板收发验证。

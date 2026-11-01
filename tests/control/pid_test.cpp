@@ -7,7 +7,7 @@
  * @copyright Copyright (c) 2026 Caspian Wu.
  */
 
-#include "../src/control/include/pid.h"
+#include "../../src/control/include/pid.h"
 
 #include <cassert>
 #include <cmath>

@@ -7,7 +7,7 @@
  * @copyright Copyright (c) 2026 Caspian Wu.
  */
 
-#include "../src/control/include/odometry.h"
+#include "../../src/control/include/odometry.h"
 
 #include <cassert>
 #include <cmath>

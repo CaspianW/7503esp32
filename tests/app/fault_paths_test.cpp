@@ -9,8 +9,8 @@
 
 #include "fakes/Arduino.h"
 #include <driver/pcnt.h>
-#include "../src/app/robot_controller.h"
-#include "../src/config/robot_config.h"
+#include "../../src/app/robot_controller.h"
+#include "../../src/config/robot_config.h"
 #include <cassert>
 
 static void tick(robot::RobotController &c) { fakeNow += 10000; c.update(); }

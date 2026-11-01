@@ -1,5 +1,5 @@
 #pragma once
-#include "../src/communication/serial_protocol.h"
+#include "../../src/communication/serial_protocol.h"
 #include <cassert>
 #include <initializer_list>
 #include <string>

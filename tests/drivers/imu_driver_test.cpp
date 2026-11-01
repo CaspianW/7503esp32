@@ -7,7 +7,7 @@
  * @copyright Copyright (c) 2026 Caspian Wu.
  */
 
-#include "../src/drivers/include/imu.h"
+#include "../../src/drivers/include/imu.h"
 
 #include <cassert>
 #include <cmath>

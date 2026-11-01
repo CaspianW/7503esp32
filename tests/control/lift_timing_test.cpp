@@ -1,8 +1,8 @@
 // Timed completion is nonblocking, idempotent and safe across uint32 millis rollover.
 #include "fakes/Arduino.h"
-#include "../src/control/include/lift_controller.h"
-#include "../src/config/board_pins.h"
-#include "../src/config/robot_config.h"
+#include "../../src/control/include/lift_controller.h"
+#include "../../src/config/board_pins.h"
+#include "../../src/config/robot_config.h"
 #include <cassert>
 
 int main() {

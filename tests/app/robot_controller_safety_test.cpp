@@ -8,8 +8,8 @@
  */
 
 #include "fakes/Arduino.h"
-#include "../src/app/robot_controller.h"
-#include "../src/config/robot_config.h"
+#include "../../src/app/robot_controller.h"
+#include "../../src/config/robot_config.h"
 #include <cassert>
 #include <math.h>
 

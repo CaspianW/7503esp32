@@ -7,7 +7,7 @@
  * @copyright Copyright (c) 2026 Caspian Wu.
  */
 
-#include "../src/control/include/mecanum.h"
+#include "../../src/control/include/mecanum.h"
 
 #include <cassert>
 #include <cmath>

@@ -1,5 +1,5 @@
 #include "serial_test_helpers.h"
-#include "../src/communication/serial_telemetry.h"
+#include "../../src/communication/serial_telemetry.h"
 #include <limits>
 
 static std::vector<robot::SerialPacket> encode(const robot::SerialTelemetry &f) {
