@@ -2,7 +2,7 @@
  * @file robot_controller.cpp
  * @brief Scheduled chassis control, manual driving and lift pulse output.
  * @author Caspian Wu
- * @date 2026-10-26
+ * @date 2026-11-01
  * @version 0.1.0
  * @copyright Copyright (c) 2026 Caspian Wu.
  */
@@ -94,8 +94,8 @@ bool RobotController::begin() {
     if (!liftConfigured() || !initLift()) {
       fail(RobotFault::lift); return false;
     }
-    // 上电立即输出已标定的最低位脉宽，并持续保持该位置。
-    liftController_.request(LiftPosition::lowered);
+    // 上电直接下降，经过动作时间后再上报下降完成位。
+    liftController_.request(LiftPosition::lowered, millis());
     liftTarget_ = 0;
     liftPulse_ = config::liftLoweredPulse;
     liftActive_ = true;
@@ -178,21 +178,9 @@ bool RobotController::commandLift(LiftPosition target) {
       !config::liftOutputsEnabled ||
       !liftConfigured()) return false;
   if (!initLift()) { fail(RobotFault::lift); return false; }
-  liftController_.request(target);
+  liftController_.request(target, millis());
   liftTarget_ = target == LiftPosition::raised ? 1 : 0;
   liftPulse_ = target == LiftPosition::raised ? config::liftRaisedPulse : config::liftLoweredPulse;
-  liftActive_ = true;
-  return true;
-}
-
-bool RobotController::commandLiftPulse(uint16_t pulse) {
-  if (pulse < 500 || pulse > 2500 || !initialized_ || benchMode_ ||
-      fault_ != RobotFault::none || !config::liftOutputsEnabled ||
-      !liftConfigured()) return false;
-  if (!initLift()) { fail(RobotFault::lift); return false; }
-  if (!liftController_.requestPulse(pulse)) return false;
-  liftTarget_ = 2; // 自定义脉宽，不对应已标定的 up/down 端点
-  liftPulse_ = pulse;
   liftActive_ = true;
   return true;
 }
@@ -289,6 +277,7 @@ void RobotController::update() {
   }
   if (elapsed > config::maxControlGap) fail(RobotFault::timing);
   if (elapsed < config::controlPeriod) return;
+  liftController_.update(millis());
   lastControl_ = now;
   const float dt = elapsed * 0.000001f;
   const bool encoderRequired = config::chassisControlEnabled || config::encoderReadEnabled;

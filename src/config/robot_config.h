@@ -2,7 +2,7 @@
  * @file robot_config.h
  * @brief Robot and chassis configuration parameters.
  * @author Caspian Wu
- * @date 2026-10-22
+ * @date 2026-11-01
  * @version 0.1.0
  * @copyright Copyright (c) 2026 Caspian Wu.
  */
@@ -54,6 +54,7 @@ constexpr uint16_t liftRaisedPulse = 700;   // 单位 µs，已测顶部
 // 舵机上电即初始化PWM；端点须在500～2500µs内且互不相同。
 constexpr bool liftOutputsEnabled = true;
 constexpr uint8_t liftServoChannel = 1; // 0=S1(GPIO8)，1=S2(GPIO21)；当前接S2
+constexpr uint32_t liftTravelTimeMs = 3000; // 单位 ms，发出端点 PWM 后更新完成标志
 
 constexpr uint32_t controlPeriod = 10000;  // 单位 µs，100 Hz
 constexpr uint32_t imuPeriod = 10000;      // 单位 µs，100 Hz
@@ -89,6 +90,7 @@ constexpr float motorDutyLimit = 1.0f; // 单位占空比，闭环输出最大�
 constexpr uint32_t maxControlGap = 50000; // 单位 µs，超时锁定停机
 constexpr uint32_t telemetryPeriod = 100000; // 单位 µs，10 Hz
 constexpr uint32_t imuFreshness = 100; // 单位 ms
+constexpr uint32_t telemetrySampleMaxAge = 100; // 单位 ms，过期的 O/I 样本不上报
 // 未确认安装朝向前里程计使用编码器推算的角速度。
 constexpr bool useImuYaw = false;
 constexpr int8_t imuYawDirection = 1; // 芯片 Z 轴与车体 Z 轴同向为 +1

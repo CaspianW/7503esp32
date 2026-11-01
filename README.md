@@ -1,81 +1,51 @@
 # 7503 ESP32-S3 小车电控固件
 
-本仓库是四轮麦克纳姆小车的 ESP32-S3 下位机代码，使用 Arduino IDE 编译和烧录。固件负责读取编码器与 IMU、计算轮速和里程计、控制四路轮电机及升降舵机，并处理控制指令与安全状态。
+本仓库负责四轮麦克纳姆小车的 ESP32 固件：编码器与 IMU 采样、轮速和里程计、四路电机与升降舵机控制，以及与树莓派的二进制串口收发。不依赖 ROS 或 micro-ROS 库。
 
-板端运行入口是 ASCII 串口控制台，ROS 2 通信由树莓派上的串口桥接提供；`src/communication/ros_bridge.*` 仅为原生 micro-ROS 接口预留。
+## 硬件串口
+
+Yahboom MicroROS-Board 支持普通 UART 通信。课程硬件材料第 2 页明确给出 USB-Serial 连接，第 13 页标出独立的 Type-C 串口，第 14 页给出 UART0：TX=GPIO43、RX=GPIO44。
+树莓派 USB-A 通过数据线连接板上的 Type-C 串口，区别于板上的 Type-C 电源口。
+固件明确使用 UART0 的 115200 / 8N1；Arduino IDE 的 USB CDC On Boot 关闭。
 
 ## 代码结构
 
-```text
-7503esp32/
-├── 7503esp32.ino          # Arduino 草图入口：初始化、主循环、状态灯
-├── src/
-│   ├── app/               # RobotController：调度、模式切换、故障与安全状态
-│   ├── common/            # 各层共用的数据类型、轮序和坐标定义
-│   ├── communication/     # 串口命令解析、状态输出；micro-ROS 预留接口
-│   ├── config/            # 板卡引脚与机器人参数
-│   ├── control/
-│   │   ├── include/       # 底盘、轮速、PID、里程计、升降控制接口
-│   │   └── src/           # 对应控制算法实现
-│   └── drivers/
-│       ├── include/       # 电机、编码器、IMU、舵机硬件接口
-│       └── src/           # 对应硬件驱动实现
-├── tests/                 # 电脑端逻辑和硬件替身测试，不参与固件编译
-├── tools/                 # 树莓派 ROS 串口桥接、电脑端键盘调试工具
-└── COMMIT.md              # 提交信息约定
-```
+~~~text
+7503esp32.ino              # 上电初始化、控制与串口主循环
+src/app/                  # RobotController：调度、使能、故障、安全
+src/communication/
+  serial_link.*           # UART 收发、命令执行、周期遥测
+  serial_protocol.*       # 帧头、长度、CRC、帧尾、字节序和流式解析
+  serial_telemetry.*      # 里程计、IMU、升降完成位、控制状态打包
+  ros_bridge.*            # 未启用的原生 micro-ROS 占位接口
+src/common/robot_types.h # 控制与传感器数据类型
+src/config/               # 板卡引脚、轮位、参数和采样频率
+src/control/              # 麦轮逆解、轮速 PID、里程计、升降
+src/drivers/              # 编码器、IMU、电机 PWM、舵机 PWM
+tests/                    # 电脑端 C++ 测试与硬件替身
+tools/                    # 历史 ASCII 调试脚本，不适用当前二进制协议
+~~~
 
-`src/config/board_pins.h` 管理 GPIO 与外设接口；`src/config/robot_config.h` 管理轮位映射、尺寸、方向、控制参数和功能开关。跨模块的数据结构集中在 `src/common/robot_types.h`，避免各层重复定义。
+板端上电后自动开始串口收发，每 100 ms 上报一次，不需要先使能底盘。
+主循环先执行安全检查与控制，再按字节预算处理串口；发送缓冲区不足时跳过本次发送，不阻塞控制。
+坐标 X 向前、Y 向左、Z 逆时针为正；轮序 FL/RL/FR/RR。IMU 数据仍为芯片轴，安装方向需实测。
 
-## 控制流程
+## 通信和升降
 
-1. `7503esp32.ino` 创建 `RobotController` 和 `SerialConsole`，在主循环中依次更新控制与串口。
-2. `communication/` 将串口输入解析为底盘速度、升降或安全命令，交给 `app/`；`app/` 决定当前模式、调度频率和是否允许输出。
-3. 底盘路径：`control/` 做麦轮逆解、轮速目标和 PID 计算，`drivers/motor_driver` 输出电机 PWM。
-4. 反馈路径：`drivers/encoder` 读取计数，`control/wheel_speed` 换算轮速，`control/odometry` 估算位姿；`drivers/imu` 提供惯性测量。
-5. 升降路径：`control/lift_controller` 确定目标脉宽，`drivers/servo_driver` 输出舵机 PWM。安全和故障状态统一由 `app/` 管理。
+包结构为 AA 55 / 类型 / 长度 / 数据 / CRC16 / 0D 0A。字段和类型见 [串口协议](docs/communication.md)。
+发送里程计、六轴 IMU、一个升降完成位和精简状态，不发送温度或舵机脉宽。
+升降收到目标立即输出已标定 PWM，3 秒后更新完成位（0=下降、1=抬升），计时不阻塞底盘控制。
+MG996 没有位置反馈，完成位是计时估计。底盘 500 ms 无有效速度指令会停机并解除使能。
 
-车体坐标遵循 ROS 常用约定：X 向前、Y 向左、绕 Z 轴逆时针为正。逻辑轮序固定为左前 FL、左后 RL、右前 FR、右后 RR；逻辑轮位到 M1～M4 电气通道的对应关系由 `wheelChannel` 配置。
+## 编译与测试
 
-## 开始阅读与编译
+Arduino IDE 打开根目录 7503esp32.ino。原工程使用 ESP32S3 Dev Module、Arduino-ESP32 2.0.17、TDK ICM42670P 1.0.9。
+Arduino-ESP32 3.x 的 LEDC/PCNT 接口不同，升级前需要适配驱动。
 
-建议从 `7503esp32.ino` → `src/app/robot_controller.*` → `src/control/` → `src/drivers/` 阅读。修改硬件接线或车体参数时，先查看 `src/config/`，不要在控制算法里写死引脚或轮位。
+电脑端回归（g++，不需要硬件）：
 
-在 Arduino IDE 中打开仓库根目录的 `7503esp32.ino`。已验证的编译环境是 **ESP32S3 Dev Module**、Arduino-ESP32 **2.0.17** 和 TDK **ICM42670P 1.0.9**；本板使用 UART0 USB 转串口，USB CDC On Boot 关闭。Arduino-ESP32 3.x 的 LEDC/PCNT 接口不同，升级前需要适配驱动代码。
+~~~bash
+bash tests/run_communication_tests.sh
+~~~
 
-`tests/` 包含电脑端 C++ 测试和键盘工具的 Python 测试；其中 `tests/fakes/` 模拟 Arduino 与外设，不会烧录到板上。`tools/keyboard_control.py` 是独立的上位机测试工具，不属于固件。当前串口协议的实现以 `src/communication/serial_protocol.*` 为准。
-
-## ROS 2 桥接（树莓派侧）
-
-`tools/ros_serial_bridge.py` 在树莓派上把 ASCII 串口协议翻译成 ROS 2 话题，协议校验与采样时间处理位于 `tools/serial_bridge_protocol.py`。此版本新增板端 `disarm` 指令，需要同时烧录本版本固件。完整对接、启动和实车待办见 [通信接入说明](docs/communication.md)。
-
-| 方向 | 话题 | 消息类型 | 串口侧 |
-| --- | --- | --- | --- |
-| 下行 | `/cmd_vel` | `geometry_msgs/Twist` | `vel <vx> <vy> <wz>`，需先 `arm` |
-| 下行 | `/lift_cmd` | `std_msgs/String` | `lift up` / `lift down` / `lift stop` |
-| 下行 | `/estop` | `std_msgs/Bool` | `estop 1` / `estop 0` |
-| 上行 | `/wheel/odom` | `nav_msgs/Odometry` | `O` 帧 |
-| 上行 | `/imu/data_raw` | `sensor_msgs/Imu` | `I` 帧 |
-| 上行 | `/lift_state` | `std_msgs/UInt8` | `L` 帧，0/1=放下/抬起目标，2=无活动目标；均非到位反馈 |
-
-桥接另提供 `/ec/arm`（SetBool）、`/ec/stop`（Trigger，只停底盘）和 `/ec/estop`（SetBool）服务；成功表示收到板端状态确认。默认不自动使能，重连不会恢复使能。
-
-运行方式（Ubuntu 24.04 + ROS 2 Jazzy）：
-
-```bash
-source /opt/ros/jazzy/setup.bash
-sudo apt install python3-serial
-python3 tools/ros_serial_bridge.py --ros-args -p port:=/dev/ttyUSB0
-```
-
-注意：
-
-1. 桥接节点不发布 `odom` → `base_link` 变换，该变换由树莓派侧 EKF 唯一发布，避免双发布冲突；`/wheel/odom` 与 `/imu/data_raw` 作为 EKF 的输入。
-2. 固件 `telemetryPeriod` 当前为 100 ms，上行最多约 10 Hz；同一板端采样时间戳只发布一次，失效或零初始化 IMU 不作为有效测量发布。
-3. 固件在 500 ms 内收不到 `vel` 命令会锁停，桥接脚本在此基础上再补一层看门狗并主动发零速。
-4. 打开串口可能触发 ESP32 复位。桥接默认等待 2 s，再解除底盘使能并确认状态。传感器就绪后，通过 `/ec/arm` 显式使能；拒绝或确认超时会返回失败。参数 `arm_on_start=true` 只允许节点启动时尝试一次，不能用于自动断线恢复。
-5. 配合导航时使用导航仓库的 `ec_bridge.launch.py` 重映射五个原始话题，不能同时另起一份未重映射的脚本。`enable_motion=true` 只开启导航的速度转发，不等于板端 `arm`。
-
-无需 ROS／硬件的通信回归：`python3 tests/run_communication_tests.py`，需要 Python 3 和 g++。它覆盖板端控制与串口测试、桥接状态与服务测试，并使用真实 C++ 遥测格式交叉验证 Python 解析。
-
-> 这是课程项目固件，不是通用安全控制器。实车运行前仍需核对接线、轮位、转向和急停手段。
+测试不代替 ESP32 工具链编译、烧录与实板收发验证。

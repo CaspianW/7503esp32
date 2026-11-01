@@ -45,7 +45,9 @@ constexpr uint8_t statusLed = 45;
 constexpr bool statusLedActiveLow = false;
 
 // 控制板的 Type-C 串口使用 UART0：TX=GPIO43，RX=GPIO44。
-// 机器人运行时，此串口留给 micro-ROS agent 连接使用。
+// 与树莓派连接数据线，区别于仅供电的 Type-C 接口。
+constexpr uint8_t serialTx = 43;
+constexpr uint8_t serialRx = 44;
 
 } // board 命名空间结束
 } // robot 命名空间结束

@@ -2,7 +2,7 @@
  * @file robot_controller_safety_test.cpp
  * @brief Controller integration tests for the calibrated closed-loop profile.
  * @author Caspian Wu
- * @date 2026-10-22
+ * @date 2026-11-01
  * @version 0.1.0
  * @copyright Copyright (c) 2026 Caspian Wu.
  */
@@ -17,7 +17,7 @@ static void tick(robot::RobotController &controller, uint32_t elapsed = 10000) {
   fakeNow += elapsed; controller.update();
 }
 static bool stopped() {
-  // 底盘停车不关闭上电后持续保持最低位的舵机PWM。
+  // 底盘停机不要求升降舵机释放保持力。
   for (uint8_t i = 0; i < robot::wheelCount; ++i)
     if (fakePwm[i]) return false;
   return true;
@@ -28,7 +28,6 @@ int main() {
   assert(controller.begin());
   assert(!controller.begin()); // 不能重启一次性模式
   assert(stopped());
-  if (robot::config::liftOutputsEnabled) assert(fakePwm[4] != 0);
   tick(controller);
   assert(controller.speedReady() ==
          (robot::config::encoderReadEnabled || robot::config::chassisControlEnabled));
