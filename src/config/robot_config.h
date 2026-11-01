@@ -89,6 +89,7 @@ constexpr float motorDutyLimit = 1.0f; // 单位占空比，闭环输出最大�
 constexpr uint32_t maxControlGap = 50000; // 单位 µs，超时锁定停机
 constexpr uint32_t telemetryPeriod = 100000; // 单位 µs，10 Hz
 constexpr uint32_t imuFreshness = 100; // 单位 ms
+constexpr uint32_t telemetrySampleMaxAge = 100; // 单位 ms，过期的 O/I 样本不上报
 // 未确认安装朝向前里程计使用编码器推算的角速度。
 constexpr bool useImuYaw = false;
 constexpr int8_t imuYawDirection = 1; // 芯片 Z 轴与车体 Z 轴同向为 +1

@@ -1,133 +1,154 @@
-# 与现有导航栈对接的串口通信
+# ESP32 ↔ 树莓派串口协议
 
-本实现按导航仓库 main 的 521f12f 接口接入，不引入原生 micro-ROS。
-ESP32 使用 SerialConsole，树莓派使用 Python 桥接；ros_bridge.cpp 继续保留给未来原生方案。
-桥接依赖同目录的 serial_bridge_protocol.py，部署时必须一起提供。
+本仓库负责 ESP32 固件：采样、控制、串口收指令与发遥测。
+树莓派串口读取、ROS 2 消息构造、话题发布和导航启动由上位机仓库维护。
+本实现参考 feature/ros-serial-bridge 的字段和数据类型约定，继续使用 ASCII 协议。
 
-## 接口和职责
+## 板端实现位置
 
-下行：Nav2 / motion_guard → /cmd_vel → ec_adapter → /ec/cmd_vel → 串口 vel → RobotController。
-上行：ESP32 O/I/L → Python 桥接 → /ec/... → ec_adapter → /odom/wheel、/imu/data_raw。
-桥接不发布 odom→base_link TF；该变换仍由导航 EKF 唯一发布。
+- src/communication/serial_protocol.*：校验并解析接收的一行控制命令。
+- src/communication/serial_console.*：UART 初始化、有限字节预算接收、命令分发和周期发送。
+- src/communication/serial_telemetry.*：从固定类型的 MCU 数据快照编码 S/E/O/I/L。
+- src/app/robot_controller.*：控制器实际状态、速度与升降命令、安全超时。
+- src/common/robot_types.h：Twist2D、OdometryState、ImuSample 的类型和单位。
+- src/communication/ros_bridge.*：未启用的原生 micro-ROS 占位接口，不参与此串口链路。
 
-| 桥接原话题 | 导航 launcher 重映射后 | 类型 / 含义 |
+7503esp32.ino 的 setup() 自动调用 console.begin()，loop() 自动执行控制与串口更新。
+ESP32 上电后不等待树莓派连接，不等待 arm，也不需要另外启动通信程序。
+arm 只使能底盘运动，和遥测是否发送无关。
+
+## 物理和帧格式
+
+- UART0，通过现有 USB-UART 转串口连接树莓派；USB CDC On Boot 关闭。
+- 115200 baud，8 数据位，无校验，1 停止位（8N1）。
+- 文本编码为 ASCII，空格分隔，每行 LF 换行；接收时忽略 CR。
+- 一条下行命令最多 95 个字符，不含 LF。浮点采用点号小数。
+- 整数和浮点都以十进制文本传输，不直接发送 C++ 内存结构，也不传 ROS 消息对象。
+- 默认每 100 ms（10 Hz）发送一组状态。由 config::telemetryPeriod 配置。
+- 里程计与 IMU 在板端按控制/采样周期更新，串口只发送当次快照。
+- status 可主动请求一组状态，不改变采样时间和电机使能。
+
+S/E/L 在周期内上报。O/I 为可选行：没有真实样本、传感器未就绪、非有限数或样本年龄达到
+config::telemetrySampleMaxAge（默认 100 ms）时不发送对应行。
+相比此前固定输出五行，字段顺序未变，但接收方不能假定每组一定有 O/I。
+发送缓冲区不足时丢弃本次整组遥测，不等待，不影响控制循环；下个周期再次尝试。
+
+## 上行：ESP32 发给树莓派
+
+下表的字段数包含行首标签。bool 以 0/1 输出；float 为 C++ float 的十进制表示。
+
+| 标签 | 字段数 | 内容 | 上位机转换目标（参考） |
+| --- | --- | --- | --- |
+| S | 14 | 板端时间、初始化/使能/故障/传感器状态 | 上位机状态监控 |
+| E | 13 | 四轮目标速度、实测速度、输出占空比 | 调试；不是导航必需输入 |
+| O | 8 | 真实采样时间、平面位置/航向、车体速度 | nav_msgs/msg/Odometry |
+| I | 9 | 真实采样时间、三轴加速度、三轴角速度、温度 | sensor_msgs/msg/Imu |
+| L | 7 | 升降配置、输出状态、命令目标和脉宽 | std_msgs/msg/UInt8 的目标值 |
+| P | 9 | 台架模式电气通道和实际 PWM 外设状态 | 台架诊断 |
+
+### S：状态
+
+~~~text
+S uptime_ms initialized armed motion_allowed estop fault encoder_ready imu_ready speed_ready bench motor_enabled chassis_enabled manual
+~~~
+
+- uptime_ms：uint32_t，板端 millis()，不是 ROS 时间。第一项数字不是 initialized。
+- fault：uint8_t；0=无故障，1=配置，2=电机，3=编码器，4=控制时序，5=反馈，6=IMU，7=升降。
+- 其余字段：bool，以 0/1 表示。
+- armed=1 不代表正在运动；motion_allowed 还取决于新鲜速度指令、急停和安全状态。
+- imu_ready=0 时，本周期无有效 I 行。O 的有效性还取决于里程计自身时间戳与有限值。
+
+### O：轮里程计
+
+~~~text
+O sample_ms x y yaw vx vy wz
+~~~
+
+| 字段 | MCU 类型 | 单位 / 坐标 |
 | --- | --- | --- |
-| /cmd_vel | /ec/cmd_vel | geometry_msgs/Twist，SI 单位，X 前、Y 左、Z 逆时针 |
-| /wheel/odom | /ec/wheel/odom | nav_msgs/Odometry，odom / base_link |
-| /imu/data_raw | /ec/imu/data_raw | sensor_msgs/Imu，原始芯片轴，无姿态 |
-| /lift_cmd | /ec/lift_cmd | std_msgs/String，lift up/down/stop，兼容 up/down/stop |
-| /lift_state | /ec/lift_state | std_msgs/UInt8，0/1 是目标，2 是无活动目标 |
+| sample_ms | uint32_t | 真实采样时间，板端 ms |
+| x, y | float | m，里程计坐标系中的位置 |
+| yaw | float | rad，绕 Z 逆时针为正 |
+| vx, vy | float | m/s，车体 X 向前、Y 向左 |
+| wz | float | rad/s，绕车体 Z 轴 |
 
-兼容现有导航配置，IMU frame_imu 默认仍为 base_link，但这不代表轴向已标定。
-部署时必须通过 NAV 的 imu_to_base_rpy_rad 实测配置旋转，或在完成板端轴变换后使用零旋转。
-不能只改 frame 名而不转换数值；只在一处应用安装旋转。
-角速度已经是 rad/s，加速度已经是 m/s²，不需要再次换算。
+树莓派将 yaw 转为四元数，构造 Odometry；时间基准和坐标系名称由上位机处理。
+ESP32 不发送 TF。导航当前由 EKF 唯一发布 odom→base_link 变换。
 
-| 稳定的桥接服务名 | 类型 | 行为 |
-| --- | --- | --- |
-| /ec/arm | std_srvs/SetBool | true 请求 arm；false 发送 disarm |
-| /ec/stop | std_srvs/Trigger | 发送 disarm，只停底盘并丢弃旧速度，保留升降 PWM |
-| /ec/estop | std_srvs/SetBool | 设置板端底盘急停；解除后仍需显式 arm |
+### I：原始 IMU
 
-服务只有在收到新的、符合请求的 S 状态帧后才返回成功；发送失败、固件 ERR、复位或超时会返回失败。
-/estop（std_msgs/Bool）仍兼容话题式请求，但没有确认响应；需要确认时使用服务。
-升降动作不受底盘 arm 控制，与现有固件保持一致。
-升降完成仍由导航 /ec_adapter/confirm_lift 人工确认；桥接不生成到位信号。
-
-## 固件变化
-
-新增 ASCII 指令 disarm，其余 S/E/O/I/L 格式保持不变：
-
-- arm：闭环底盘使能，必须满足原有控制器条件。
-- disarm：立即停底盘、解除使能、丢弃旧速度，保留升降保持输出。
-- stop：保留旧语义，停底盘并停止升降 PWM。不要用于桥接退出或一般底盘解除使能。
-- estop 1/0：仅作用于底盘；解除不恢复使能。
-- lift up/down/stop：保留既有语义。
-
-必须烧录包含 disarm 的本版本固件。旧固件遇到此指令会返回 ERR，不应作为本版本联调基线。
-不需要更改 PID、轮位映射、串口波特率或遥测频率。
-上电默认无底盘运动授权，串口无需等待树莓派就可以接收指令。
-
-## 使用现有导航 launcher
-
-先烧录固件，在树莓派准备 Ubuntu 24.04、ROS 2 Jazzy、python3-serial，并构建导航工作空间。
-桥接独占串口，不要同时开启串口监视器、键盘工具或 micro-ROS Agent。
-
-在导航仓库中启动无运动的通信调试：
-
-~~~bash
-bash scripts/nav.sh ec start_bridge:=true \
-  bridge_root:=/实际路径/7503esp32 port:=/dev/ttyUSB0
+~~~text
+I sample_ms ax ay az gx gy gz temperature
 ~~~
 
-该命令启动桥接与 ec_adapter；两个通信 Python 文件均来自 bridge_root 的 tools 目录。
-现有 launcher 已包含五个原话题的重映射，不要再按固件 README 的独立运行命令另起一个节点。
+- sample_ms：uint32_t，真实采样时间，板端 ms。
+- ax/ay/az：float，m/s²；gx/gy/gz：float，rad/s；temperature：float，°C。
+- 数值为芯片原始坐标轴，驱动已完成 SI 单位换算。
+- 不能把芯片坐标轴直接声称为已标定的 base_link。安装方向需实测后由约定的一方转换。
+- 不发送姿态四元数或噪声协方差；这些不是本固件已经测得的数据。
 
-查看链路：
+### L：升降命令状态
 
-~~~bash
-ros2 topic echo /serial_bridge/status
-ros2 topic echo /ec_adapter/status
-ros2 topic echo /ec/wheel/odom --once
-ros2 topic echo /ec/imu/data_raw --once
+~~~text
+L outputs_enabled configured ready active target pulse_us
 ~~~
 
-桥接状态中 connected 仅表示串口已打开；session_ready 表示启动后的解除使能同步完成；
-sensors_fresh 表示对应真实采样有效；motion_authorized 表示成功的显式使能仍然有效。
+- 前四项：bool；ready 是输出模块可用，active 是当前有保持输出，均不代表到位。
+- target：uint8_t，0=放下目标、1=抬起目标、2=无活动目标。
+- pulse_us：uint16_t，命令 PWM 脉宽，单位 µs，无活动输出时为 0。
+- 当前无到位传感器，target 不能作为“机械动作已完成”的证据。
 
-需要联调空载导航时，按导航现有入口提供实测初始位姿：
+### E / P：诊断
 
-~~~bash
-bash scripts/nav.sh hardware navigation:=true \
-  initial_x:=X initial_y:=Y initial_yaw:=YAW \
-  start_bridge:=true bridge_root:=/实际路径/7503esp32 port:=/dev/ttyUSB0 \
-  enable_motion:=true
+~~~text
+E target_FL target_RL target_FR target_RR speed_FL speed_RL speed_FR speed_RR duty_FL duty_RL duty_FR duty_RR
+P channel pin duty_raw frequency route out gpio pause
 ~~~
 
-X/Y/YAW 必须替换为实测 m/rad 数值。导航的 enable_motion 只允许速度转发，不会操作板端 arm。
-传感器和初始位姿确认后，在同一 ROS 域显式使能：
+E 的目标/实测速率单位 m/s，占空比为无量纲比例，逻辑轮序 FL/RL/FR/RR。
+P 只在台架模式额外发送，channel 为 1～4 电气通道；不是逻辑轮序。
+
+## 下行：树莓派发给 ESP32
+
+| 命令文本 | 含义 |
+| --- | --- |
+| status | 请求当前状态和有效遥测 |
+| arm | 请求闭环底盘使能；仍需随后发送新的 vel |
+| disarm | 只停底盘并丢弃旧速度，保留升降 PWM |
+| vel vx vy wz | 车体速度，float，m/s / m/s / rad/s |
+| estop 1 / estop 0 | 底盘急停 / 解除急停；解除后不自动 arm |
+| lift up / lift down | 请求抬起 / 放下目标 |
+| lift stop | 停止升降 PWM，可能释放保持力 |
+| stop | 停底盘并停止升降 PWM |
+| manual arm / manual stop | 原有开环调试命令 |
+| manual vel vx vy wz / manual duty value | 原有开环方向和占空比调试 |
+
+响应为 OK 或 ERR command_or_state；坏帧响应 ERR frame。
+OK 表示命令已接收/被控制器接受，不代表升降到位。接收方还应观察 S/L 中的实际控制状态。
+完整非法命令只拒绝；过长、NUL 或半帧超时沿用现有安全停机逻辑。
+底盘在 500 ms 未收到有效速度指令后解除使能，旧指令不会自行恢复；重新运动需 arm 和新 vel。
+串口断开没有单独物理握手，板端以该命令看门狗限制运动。
+
+## 树莓派侧需遵守的边界
+
+1. 逐行解析。S 第一项是 uptime，O/I 第一项是源采样时间；遵守字段顺序。
+2. 源时间是 uint32_t millis()，约 49.7 天回绕。ROS header 时间需要上位机转换或同步。
+   不要把板端毫秒直接填作 ROS epoch；不要把同一旧样本反复打成新采样时间。
+3. O/I 缺失或 S 传感器状态失效时让对应数据过期，不用缓存重发维持“在线”。
+   仅板端停止发送不能替代上位机的数据过期检查。
+4. 将原始数值转换为 ROS 消息后，话题名、重映射、QoS 和导航入口由上位机仓库维护。
+5. 原导航 launcher 引用本仓库 tools/ros_serial_bridge.py 的路径，需要上位机负责人迁移到其仓库。
+   本仓库不再提供树莓派程序或 /ec/arm 等 ROS 服务，只提供表中的串口命令。
+
+## 编译、测试与验收
+
+Arduino IDE 打开根目录 7503esp32.ino。此链路不依赖 micro-ROS 库或 ROS 安装。
+电脑端 C++ 回归（需要 g++，不参与烧录）：
 
 ~~~bash
-ros2 service call /ec/arm std_srvs/srv/SetBool '{data: true}'
-ros2 service call /ec/stop std_srvs/srv/Trigger '{}'
-ros2 service call /ec/estop std_srvs/srv/SetBool '{data: true}'
-ros2 service call /ec/estop std_srvs/srv/SetBool '{data: false}'
+bash tests/run_communication_tests.sh
 ~~~
 
-依次列出的命令用于使能、底盘停机、急停、解除急停；并非要求连续执行。
-解除急停、固件 watchdog 停机或串口重连后，均需重新调用 arm 服务，不能重放旧速度。
-
-串口打开后默认等待 startup_delay_s=2，再同步 disarm 状态。
-启动时 arm_on_start 默认 false；显式开启也只尝试一次，重连或固件重启不自动恢复运动。
-keepalive_period_s 默认 0；默认不为暂停的控制源持续发送保活指令。
-桥接的 .25 s 速度超时发送一次零速，随后由板端 .5 s watchdog 解除使能。
-导航 motion_guard 正常工作时会连续发零速，因此正常任务暂停不一定触发板端超时。
-
-传感器以板端时间戳区分新样本，S 中的毫秒时间戳不会被当作 initialized；
-源时间、板端就绪标志和串口接收时间共同决定有效性。
-同一 O/I 样本不会重复发布，ROS 时间戳在收样时赋值一次，扣除 S 所示的板端采样年龄。
-这不是硬件时钟同步，不能测出第一帧之前或 UART/USB 中未知的排队延迟；实际延迟仍需联调测量。
-整条串口断开、板端时钟倒退（重启）或传感器过期时撤销主机运动授权。
-
-## 当前仍需完成的集成与实测
-
-1. 导航的 system.launch.py（nav.sh robot）尚未包含 ec_bridge.launch.py。
-   正式整机入口应先启动桥接/适配器，再根据连接、传感器与使能状态放行任务。
-   本仓库不修改导航仓库，也没有安装开机启动服务。
-2. 导航 ec/firmware 子模块仍固定旧提交 2b56582。合并本变更后，更新该指针到包含两个桥接文件和新固件的提交。
-3. 实车验证 IMU 的安装旋转、左转 gyro Z 的正方向、轮里程计符号、时间戳与真实串口吞吐。
-   当前导航只融合 IMU yaw rate，仍需完成轴向与新鲜度验收。
-4. 现有舵机只有目标脉宽，无升降到位传感器。自动取放需要双方确认到位依据和完成接口；
-   当前人工确认方式不能作为无人干预的比赛自动完成。
-5. 在真实 ROS/DDS 与硬件上验证首次使能、拒绝使能、停止、急停、拔线、板端复位、重连和恢复。
-   host 回归不代表 ESP32 工具链编译、ROS 发现或实体硬件验收。
-
-## 回归验证
-
-~~~bash
-python3 tests/run_communication_tests.py
-~~~
-
-需要 Python 3 和 g++，不需要 ROS、pyserial 或硬件。
-测试包含 C++ 控制/串口回归、Python 桥接的消息与串口替身回归，
-并将真实 C++ SerialConsole 输出送入 Python Telemetry，验证跨语言帧格式一致。
+覆盖字段顺序/数量/单位、启动后的自动周期发送、样本失效/非有限值/时间回绕、
+缓冲区不足、命令解析、安全超时以及 disarm 保留升降保持力。
+仍需用 ESP32 工具链编译烧录，并在实车连接树莓派验收波特率、方向、时延和停止行为。

@@ -10,6 +10,7 @@
 #include "serial_console.h"
 
 #include "serial_protocol.h"
+#include "serial_telemetry.h"
 #include "../app/robot_controller.h"
 #include "../config/robot_config.h"
 #include <Arduino.h>
@@ -82,31 +83,34 @@ void SerialConsole::update(RobotController &controller) {
   }
 }
 void SerialConsole::telemetry(const RobotController &c) {
-  char buffer[900];
-  const auto &target = c.wheelTarget();
-  const auto &speed = c.wheelSpeed();
-  const auto &duty = c.duty();
-  const auto &odom = c.odometry();
-  const auto &imu = c.imuSample();
-  const int length = snprintf(buffer, sizeof(buffer),
-    "S %lu %u %u %u %u %u %u %u %u %u %u %u %u\n"
-    "E %.5f %.5f %.5f %.5f %.5f %.5f %.5f %.5f %.4f %.4f %.4f %.4f\n"
-    "O %lu %.5f %.5f %.5f %.5f %.5f %.5f\n"
-    "I %lu %.5f %.5f %.5f %.5f %.5f %.5f %.3f\n"
-    "L %u %u %u %u %u %u\n",
-    static_cast<unsigned long>(millis()), c.initialized(), c.armed(), c.motionAllowed(),
-    c.emergencyStopped(), static_cast<unsigned>(c.fault()), c.encoderReady(),
-    c.imuReady(), c.speedReady(), c.benchMode(), config::motorOutputsEnabled,
-    config::chassisControlEnabled, c.manualMode(),
-    target.value[0], target.value[1], target.value[2], target.value[3],
-    speed.value[0], speed.value[1], speed.value[2], speed.value[3],
-    duty.value[0], duty.value[1], duty.value[2], duty.value[3],
-    static_cast<unsigned long>(odom.timestamp), odom.x, odom.y, odom.yaw,
-    odom.vx, odom.vy, odom.wz, static_cast<unsigned long>(imu.timestamp),
-    imu.accelX, imu.accelY, imu.accelZ, imu.gyroX, imu.gyroY, imu.gyroZ, imu.temperature,
-    config::liftOutputsEnabled, c.liftConfigured(), c.liftReady(), c.liftActive(),
-    c.liftTarget(), c.liftPulse());
-  if (length > 0 && static_cast<size_t>(length) < sizeof(buffer)) reply(buffer);
+  SerialTelemetry frame;
+  frame.uptimeMs = millis();
+  frame.initialized = c.initialized();
+  frame.armed = c.armed();
+  frame.motionAllowed = c.motionAllowed();
+  frame.emergencyStopped = c.emergencyStopped();
+  frame.fault = static_cast<uint8_t>(c.fault());
+  frame.encoderReady = c.encoderReady();
+  frame.imuReady = c.imuReady();
+  frame.speedReady = c.speedReady();
+  frame.benchMode = c.benchMode();
+  frame.motorOutputsEnabled = config::motorOutputsEnabled;
+  frame.chassisControlEnabled = config::chassisControlEnabled;
+  frame.manualMode = c.manualMode();
+  frame.wheelTarget = c.wheelTarget();
+  frame.wheelSpeed = c.wheelSpeed();
+  frame.duty = c.duty();
+  frame.odometry = c.odometry();
+  frame.imu = c.imuSample();
+  frame.liftOutputsEnabled = config::liftOutputsEnabled;
+  frame.liftConfigured = c.liftConfigured();
+  frame.liftReady = c.liftReady();
+  frame.liftActive = c.liftActive();
+  frame.liftTarget = c.liftTarget();
+  frame.liftPulseUs = c.liftPulse();
+  char buffer[serialTelemetryCapacity];
+  if (formatSerialTelemetry(buffer, sizeof(buffer), frame, config::telemetrySampleMaxAge))
+    reply(buffer);
   // 台架模式额外回读PWM外设，便于对比E行中的软件占空比目标。
   if (c.benchMode()) {
     for (uint8_t channel = 0; channel < wheelCount; ++channel) {
