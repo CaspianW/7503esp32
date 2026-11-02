@@ -47,6 +47,14 @@ int main() {
   for (int n = 0; n < 299; ++n) {
     tick(c, link);
     assert(c.liftState() == 0);
+    if (n == 149) {
+      // Chassis stop midway through a lift must keep PWM and the original 3s deadline.
+      const uint32_t pwm = fakePwm[4];
+      Serial.input = wire(PacketType::stop);
+      link.update(c);
+      assert(acknowledged(Serial.output, PacketType::stop, 0));
+      assert(c.liftActive() && fakePwm[4] == pwm && pwm != 0);
+    }
   }
   values = packets(Serial.output);
   for (const auto &p : values) if (p.type == PacketType::liftState) assert(p.data[0] == 0);

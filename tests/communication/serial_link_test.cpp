@@ -37,6 +37,15 @@ int main() {
   send(wire(PacketType::lift, {1}));
   assert(c.liftActive() && fakePwm[4] != 0);
   const uint32_t holding = fakePwm[4];
+  send(wire(PacketType::stop));
+  assert(acknowledged(Serial.output, PacketType::stop, 0));
+  assert(!c.armed() && !c.motionAllowed());
+  for (uint8_t n = 0; n < robot::wheelCount; ++n) assert(fakePwm[n] == 0);
+  assert(c.liftActive() && c.liftTarget() == 1 && fakePwm[4] == holding);
+  send(wire(PacketType::arm, {1}));
+  send(velocityWire(.1f, 0, 0));
+  fakeNow += 10000; c.update();
+  assert(c.motionAllowed() && fakePwm[0] != 0);
   send(wire(PacketType::arm, {0}));
   assert(!c.armed() && fakePwm[0] == 0 && fakePwm[4] == holding);
 
@@ -86,10 +95,14 @@ int main() {
   send(wire(PacketType::statusRequest));
   auto values = packets(Serial.output);
   assert(findPacket(values, PacketType::status) && acknowledged(Serial.output, PacketType::statusRequest, 0));
-  send(wire(PacketType::liftStop));
-  assert(!c.liftActive() && fakePwm[4] == 0);
+  // Removed 0x07 must be rejected without detaching the servo PWM.
+  const uint32_t raisedPwm = fakePwm[4];
+  const auto removedCommand = static_cast<PacketType>(0x07);
+  send(wire(removedCommand));
+  assert(acknowledged(Serial.output, removedCommand, 1));
+  assert(c.liftActive() && fakePwm[4] == raisedPwm);
   send(wire(PacketType::stop));
-  assert(!c.armed() && !c.liftActive());
+  assert(!c.armed() && c.liftActive() && fakePwm[4] == raisedPwm);
   Serial.capacity = 0;
   send(wire(PacketType::lift, {1}));
   assert(c.liftActive() && Serial.output.empty()); // TX cannot block dispatch.
@@ -106,14 +119,14 @@ int main() {
 
   // 超时恢复必须依次执行所有完整包，并丢弃末尾残片。
   send(std::string("\xAA\x55\x01\x20", 4) +
-       wire(PacketType::lift, {0}) + wire(PacketType::liftStop) + complete.substr(0, 4));
+       wire(PacketType::lift, {0}) + wire(PacketType::stop) + complete.substr(0, 4));
   fakeNow += 101000;
   link.update(c);
-  assert(!c.liftActive());
+  assert(c.liftActive() && c.liftTarget() == 0);
   assert(acknowledged(Serial.output, PacketType::lift, 0));
-  assert(acknowledged(Serial.output, PacketType::liftStop, 0));
+  assert(acknowledged(Serial.output, PacketType::stop, 0));
   send(complete.substr(4)); // 残片不能与新数据拼成旧命令。
-  assert(!c.liftActive());
+  assert(c.liftActive() && c.liftTarget() == 0);
   send(complete);
   assert(c.liftActive() && acknowledged(Serial.output, PacketType::lift, 0));
 }

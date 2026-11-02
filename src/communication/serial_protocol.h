@@ -14,7 +14,7 @@
 namespace robot {
 enum class PacketType : uint8_t {
   velocity = 0x01, lift = 0x02, arm = 0x03, emergencyStop = 0x04,
-  stop = 0x05, statusRequest = 0x06, liftStop = 0x07,
+  stop = 0x05, statusRequest = 0x06,
   odometry = 0x81, imu = 0x82, liftState = 0x83, status = 0x84, ack = 0xF0
 };
 constexpr size_t serialMaxPayload = 32;

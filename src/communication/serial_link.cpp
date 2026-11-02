@@ -48,10 +48,7 @@ bool SerialLink::dispatch(const SerialPacket &p, RobotController &c) {
     return c.emergencyStopped() == (p.data[0] != 0);
   case PacketType::stop:
     if (p.length) return false;
-    c.stop(); return true;
-  case PacketType::liftStop:
-    if (p.length) return false;
-    c.stopLift(); return true;
+    c.disarm(); return true;
   case PacketType::statusRequest:
     if (p.length) return false;
     telemetry(c); return true;
