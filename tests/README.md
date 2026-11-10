@@ -5,7 +5,7 @@
 
 | 目录 | 程序数 | 验证内容 |
 | --- | --- | --- |
-| communication/ | 4 | 二进制包、CRC、残包恢复、命令执行、遥测 |
+| communication/ | 5 | 二进制包、CRC、残包恢复、命令执行、遥测 |
 | control/ | 7 | PID、麦轮逆解、轮速、里程计、升降与 3 秒计时 |
 | drivers/ | 3 | 编码器累计、IMU 读数、电机 PWM |
 | app/ | 3 | 看门狗、急停、故障锁定、控制器调度 |
@@ -14,7 +14,7 @@
 需要 g++ 和 Bash，无需 ROS、树莓派或实车：
 
 ```bash
-bash tests/run_tests.sh                # 全部 17 个程序及草图入口编译
+bash tests/run_tests.sh                # 全部 18 个程序及草图入口编译
 bash tests/run_tests.sh communication  # 也可选 control、drivers、app
 ```
 
