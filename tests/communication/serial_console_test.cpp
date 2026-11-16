@@ -1,0 +1,46 @@
+/**
+ * @file serial_console_test.cpp
+ * @brief Verify keyboard commands reach the current robot controller.
+ * @author Caspian Wu
+ * @date 2026-11-16
+ * @version 0.1.0
+ * @copyright Copyright (c) 2026 Caspian Wu.
+ */
+#include "../../7503esp32.ino"
+#include "fakes/Arduino.h"
+#include <cassert>
+#include <cmath>
+
+static void step() { fakeNow += 10000; loop(); }
+static void send(const char *line) { Serial.input = line; step(); }
+
+int main() {
+  setup(); step();
+  assert(Serial.baud == 115200 && Serial.rx == 44 && Serial.tx == 43);
+  assert(!robotController.armed());
+  send("manual arm\n");
+  assert(robotController.armed() && robotController.manualMode());
+  send("manual duty 0.65\n");
+  send("manual vel 1 0 0\n"); step();
+  for (float duty : robotController.duty().value)
+    assert(std::fabs(duty - 0.65f) < 0.001f);
+  send("lift up\n");
+  const auto pulse = robotController.liftPulse();
+  send("manual stop\n");
+  assert(!robotController.armed() && robotController.liftPulse() == pulse);
+  for (float duty : robotController.duty().value) assert(duty == 0);
+  send("arm\n");
+  assert(robotController.armed() && !robotController.manualMode());
+  send("vel 0.1 0 0\n"); step();
+  assert(robotController.motionAllowed());
+  send("estop 1\n");
+  assert(robotController.emergencyStopped() && !robotController.armed());
+  send("estop 0\n");
+  assert(!robotController.emergencyStopped() && !robotController.armed());
+  Serial.output.clear();
+  send("vel nan 0 0\n");
+  assert(Serial.output.find("ERR command_or_state") != std::string::npos);
+  send("arm\n"); send("vel 0.1 0 0\n");
+  for (int n = 0; n < 51; ++n) step();
+  assert(!robotController.armed());
+}

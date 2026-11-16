@@ -1,5 +1,7 @@
 # 7503 ESP32-S3 小车电控固件
 
+当前分支 `feature/keyboard_ctrl` 用于电脑终端键盘测试，烧录后运行 `tools/keyboard_control.py`。三个分支用途和完整命令见 [分支与烧录](docs/branches.md)。
+
 本仓库负责四轮麦克纳姆小车的 ESP32 固件：编码器与 IMU 采样、轮速和里程计、四路电机与升降舵机控制，以及与树莓派的二进制串口收发。不依赖 ROS 或 micro-ROS 库。
 
 ## 硬件串口
