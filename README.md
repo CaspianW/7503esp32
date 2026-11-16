@@ -1,5 +1,7 @@
 # 7503 ESP32-S3 小车电控固件
 
+当前分支 `feature/debug_motor` 只用于电脑 Serial Monitor 查看反馈。三个分支的切换与烧录方法见 [分支与烧录](docs/branches.md)。
+
 ## feature/debug_motor 串口调试
 
 此分支入口使用 `MotorDebug`，不再运行视觉二进制通信，也不接受视觉运动指令。Arduino Serial Monitor 选择 **115200 baud**，板型仍为 ESP32S3 Dev Module，USB CDC On Boot 关闭。
