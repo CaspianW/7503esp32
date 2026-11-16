@@ -49,8 +49,8 @@ constexpr int8_t motorDirection[wheelCount] = {-1, 1, -1, 1};
 constexpr int8_t encoderDirection[wheelCount] = {1, -1, 1, -1};
 
 // MG996舵机无外部位置反馈；以下是控制脉宽，不是编码器读数。
-constexpr uint16_t liftLoweredPulse = 2500; // 单位 µs，已测底部
-constexpr uint16_t liftRaisedPulse = 700;   // 单位 µs，已测顶部
+constexpr uint16_t liftLoweredPulse = 500;  // 单位 µs，新机构底部
+constexpr uint16_t liftRaisedPulse = 1600;  // 单位 µs，新机构顶部
 // 舵机上电即初始化PWM；端点须在500～2500µs内且互不相同。
 constexpr bool liftOutputsEnabled = true;
 constexpr uint8_t liftServoChannel = 1; // 0=S1(GPIO8)，1=S2(GPIO21)；当前接S2
