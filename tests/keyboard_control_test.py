@@ -66,6 +66,8 @@ class KeyboardControlTest(unittest.TestCase):
                         types.SimpleNamespace(type=ecodes.EV_SYN, code=ecodes.SYN_DROPPED, value=0),
                         types.SimpleNamespace(type=ecodes.EV_KEY, code=ecodes.KEY_R, value=1),
                         types.SimpleNamespace(type=ecodes.EV_KEY, code=ecodes.KEY_U, value=1),
+                        types.SimpleNamespace(type=ecodes.EV_KEY, code=ecodes.KEY_U, value=2),
+                        types.SimpleNamespace(type=ecodes.EV_KEY, code=ecodes.KEY_U, value=0),
                         types.SimpleNamespace(type=ecodes.EV_KEY, code=ecodes.KEY_J, value=1),
                         types.SimpleNamespace(type=ecodes.EV_KEY, code=ecodes.KEY_W, value=1),
                         types.SimpleNamespace(type=ecodes.EV_KEY, code=ecodes.KEY_T, value=1),
@@ -153,8 +155,15 @@ class KeyboardControlTest(unittest.TestCase):
         self.assertLess(second_motion, estop_on)
         self.assertLess(estop_on, estop_off)
         self.assertLess(estop_off, commands.index("manual arm", estop_off))
-        self.assertIn("lift up", commands)
-        self.assertIn("lift down", commands)
+        self.assertEqual(commands.count("lift up"), 1)
+        self.assertEqual(commands.count("lift down"), 1)
+        lift_up = commands.index("lift up")
+        lift_down = commands.index("lift down")
+        # 下降只能由接下来的 J 按下触发，U 重复和松开事件均不发升降命令。
+        self.assertFalse(any(
+            command.startswith("lift ")
+            for command in commands[lift_up + 1:lift_down]
+        ))
         self.assertFalse(any(
             command.startswith("manual vel ") and command != "manual vel 0 0 0"
             for command in commands[dropped_stop + 1:rearm]

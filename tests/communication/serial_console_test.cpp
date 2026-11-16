@@ -7,6 +7,7 @@
  * @copyright Copyright (c) 2026 Caspian Wu.
  */
 #include "../../7503esp32.ino"
+#include "../../src/config/robot_config.h"
 #include "fakes/Arduino.h"
 #include <cassert>
 #include <cmath>
@@ -26,6 +27,15 @@ int main() {
     assert(std::fabs(duty - 0.65f) < 0.001f);
   send("lift up\n");
   const auto pulse = robotController.liftPulse();
+  assert(pulse == robot::config::liftRaisedPulse);
+  const auto raisedDuty = fakePwm[4];
+  // 模拟仅按 U 后保持空闲超过 3s，零速度刷新不能改变舵机输出。
+  for (int n = 0; n < 400; ++n) {
+    send("manual vel 0 0 0\n");
+    assert(robotController.liftPulse() == pulse && fakePwm[4] == raisedDuty);
+    assert(robotController.fault() == robot::RobotFault::none);
+  }
+  assert(robotController.liftCompletionKnown() && robotController.liftState() == 1);
   send("manual stop\n");
   assert(!robotController.armed() && robotController.liftPulse() == pulse);
   for (float duty : robotController.duty().value) assert(duty == 0);
