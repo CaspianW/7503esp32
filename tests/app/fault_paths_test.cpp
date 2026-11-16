@@ -40,10 +40,10 @@ int main() {
   assert(c.fault() == robot::RobotFault::encoder);
   fakePcntFailure = 0; assert(!c.arm());
 
-  // 当前映射中电气M3对应逻辑RL，编码器方向修正后正转速度应为正。
+  // 当前映射中电气M4对应逻辑RL，编码器方向修正后正转速度应为正。
   robot::RobotController mapped;
-  assert(mapped.begin()); fakePcnt[2] = -10; tick(mapped);
-  assert(mapped.ticks()[2] == 10);
+  assert(mapped.begin()); fakePcnt[3] = -10; tick(mapped);
+  assert(mapped.ticks()[3] == 10);
   assert(mapped.wheelSpeed().value[robot::rearLeft] > 0);
   assert(mapped.wheelSpeed().value[robot::frontLeft] == 0);
 
