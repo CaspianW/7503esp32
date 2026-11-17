@@ -28,6 +28,13 @@ int main() {
     if (c.target().value[i] != 0.0f)
       assert(fabsf(duty.value[i]) >= 0.15f);
   }
+  robot::WheelValues solved{};
+  assert(c.solveWheelTargets({0.2121f, 0.2121f, 0}, solved));
+  assert(solved.value[robot::frontLeft] == 0.0f && solved.value[robot::rearRight] == 0.0f);
+  assert(solved.value[robot::rearLeft] > 0.42f && solved.value[robot::frontRight] > 0.42f);
+  assert(c.solveWheelTargets({0.212105f, 0.2121f, 0}, solved));
+  assert(solved.value[robot::frontLeft] == 0.0f && solved.value[robot::rearRight] == 0.0f);
+  assert(!c.solveWheelTargets({NAN, 0, 0}, solved));
   assert(c.update({0, 0, 0}, measured, 0.01f, duty));
   for (auto value : duty.value) assert(value == 0);
   assert(!c.update({NAN, 0, 0}, measured, 0.01f, duty));

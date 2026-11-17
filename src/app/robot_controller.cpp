@@ -74,6 +74,8 @@ bool RobotController::begin() {
                config::wheelPidOutputLimit, config::wheelPidIntegralLimit, true)};
     if (!config::motorOutputsEnabled || !config::wheelMappingConfirmed ||
         !geometryReady || !chassis_.configure(param) ||
+        !isfinite(config::minWheelSpeed) || config::minWheelSpeed < 0.0f ||
+        config::minWheelSpeed > config::maxWheelSpeed ||
         config::wheelPidOutputLimit > config::motorDutyLimit) {
       fail(RobotFault::configuration); return false;
     }
@@ -132,6 +134,7 @@ void RobotController::halt() {
 }
 
 void RobotController::stopChassis() {
+  clearLowSpeedFault();
   halt(); armed_ = false; commandReceived_ = false;
   manualMode_ = false;
   safety_.invalidateCommand();
@@ -172,9 +175,34 @@ bool RobotController::initLift() {
   return true;
 }
 
+bool RobotController::hasLatchedFault() const {
+  return fault_ != RobotFault::none && !lowSpeedFault_;
+}
+
+void RobotController::clearLowSpeedFault() {
+  if (lowSpeedFault_) {
+    lowSpeedFault_ = false;
+    fault_ = RobotFault::none;
+  }
+}
+
+bool RobotController::commandTooSlow(const Twist2D &command) const {
+  WheelValues wheel{};
+  if (!chassis_.solveWheelTargets(command, wheel)) return true;
+  const float threshold = config::minWheelSpeed - 1e-4f;
+  bool anyMoving = false;
+  for (uint8_t i = 0; i < wheelCount; ++i) {
+    const float speed = fabsf(wheel.value[i]);
+    if (speed == 0.0f) continue;
+    anyMoving = true;
+    if (speed < threshold) return true;
+  }
+  return !anyMoving;
+}
+
 bool RobotController::commandLift(LiftPosition target) {
   if ((target != LiftPosition::lowered && target != LiftPosition::raised) ||
-      !initialized_ || benchMode_ || fault_ != RobotFault::none ||
+      !initialized_ || benchMode_ || hasLatchedFault() ||
       !config::liftOutputsEnabled ||
       !liftConfigured()) return false;
   if (!initLift()) { fail(RobotFault::lift); return false; }
@@ -186,12 +214,15 @@ bool RobotController::commandLift(LiftPosition target) {
 }
 
 void RobotController::fail(RobotFault fault) {
-  if (fault_ == RobotFault::none) fault_ = fault;
+  if (fault_ == RobotFault::none || lowSpeedFault_) {
+    fault_ = fault;
+    lowSpeedFault_ = false;
+  }
   stop();
 }
 
 bool RobotController::arm() {
-  if (!initialized_ || fault_ != RobotFault::none || emergencyStop_ ||
+  if (!initialized_ || hasLatchedFault() || emergencyStop_ ||
       physicalStop() || benchMode_ || !config::chassisControlEnabled ||
       !config::motorOutputsEnabled || !encoder_.healthy() || !speedReady_ ||
       (config::useImuYaw && !imuReady())) return false;
@@ -202,7 +233,7 @@ bool RobotController::arm() {
 
 bool RobotController::armManual() {
   if (!initialized_ || !config::manualOpenLoopEnabled ||
-      !config::motorOutputsEnabled || fault_ != RobotFault::none ||
+      !config::motorOutputsEnabled || hasLatchedFault() ||
       emergencyStop_ || physicalStop() || benchMode_) return false;
   stopChassis();
   manualMode_ = true;
@@ -214,11 +245,27 @@ bool RobotController::commandVelocity(const Twist2D &command) {
   if (!isfinite(command.vx) || !isfinite(command.vy) || !isfinite(command.wz)) {
     stop(); return false;
   }
-  if (!armed_ || manualMode_ || emergencyStop_ || fault_ != RobotFault::none || physicalStop()) return false;
+  if (!armed_ || manualMode_ || emergencyStop_ || hasLatchedFault() || physicalStop()) return false;
+  if (command.vx == 0.0f && command.vy == 0.0f && command.wz == 0.0f) {
+    command_ = command;
+    commandReceived_ = true;
+    safety_.noteVelocityCommand(millis());
+    halt();
+    return true;
+  }
+  if (commandTooSlow(command)) {
+    // 轮速低于可控下限时停机并持续报故障 5，但保持使能，收到正常速度后自动恢复。
+    halt();
+    commandReceived_ = true;
+    safety_.noteVelocityCommand(millis());
+    fault_ = RobotFault::feedback;
+    lowSpeedFault_ = true;
+    return true;
+  }
+  clearLowSpeedFault();
   command_ = command;
   commandReceived_ = true;
   safety_.noteVelocityCommand(millis());
-  if (command.vx == 0.0f && command.vy == 0.0f && command.wz == 0.0f) halt();
   return true;
 }
 

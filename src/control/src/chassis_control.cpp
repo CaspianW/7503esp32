@@ -36,34 +36,58 @@ bool ChassisControl::configure(const ChassisParam &param) {
   return true;
 }
 
-bool ChassisControl::update(const Twist2D &command,
-                            const WheelValues &measured, float dt,
-                            WheelValues &duty) {
-  duty = {};
-  if (!ready_ || !isfinite(dt) || dt <= 0.0f || dt > 0.05f ||
-      !isfinite(command.vx) || !isfinite(command.vy) ||
-      !isfinite(command.wz)) { reset(); return false; }
-  for (float value : measured.value) {
-    if (!isfinite(value) || fabsf(value) > param_.maxWheel * 3.0f) {
-      reset(); return false;
-    }
+bool ChassisControl::solveWheelTargets(const Twist2D &command,
+                                       WheelValues &wheel) const {
+  wheel = {};
+  if (!ready_ || !isfinite(command.vx) || !isfinite(command.vy) ||
+      !isfinite(command.wz)) {
+    return false;
   }
-  // 零命令直接取消输出和积分，不通过减速斜坡或 PID 产生反向制动力。
   if (command.vx == 0.0f && command.vy == 0.0f && command.wz == 0.0f) {
-    reset(); return true;
+    return true;
   }
   Twist2D limited = command;
   const float linear = hypotf(command.vx, command.vy);
-  if (!isfinite(linear)) { reset(); return false; }
+  if (!isfinite(linear)) {
+    return false;
+  }
   if (linear > param_.maxLinear) {
     limited.vx *= param_.maxLinear / linear;
     limited.vy *= param_.maxLinear / linear;
   }
   if (limited.wz > param_.maxAngular) limited.wz = param_.maxAngular;
   if (limited.wz < -param_.maxAngular) limited.wz = -param_.maxAngular;
+  if (!kinematics_.inverse(limited, wheel)) {
+    return false;
+  }
+  MecanumKinematics::scaleToLimit(wheel, param_.maxWheel);
+  // 消除斜向等复合运动中 vx ± vy 抵消后的微小浮点残差，避免误触发最低占空比。
+  for (float &value : wheel.value) {
+    if (fabsf(value) <= 1e-5f) value = 0.0f;
+  }
+  return true;
+}
+
+bool ChassisControl::update(const Twist2D &command,
+                            const WheelValues &measured, float dt,
+                            WheelValues &duty) {
+  duty = {};
+  if (!ready_ || !isfinite(dt) || dt <= 0.0f || dt > 0.05f) {
+    reset(); return false;
+  }
+  for (float value : measured.value) {
+    if (!isfinite(value) || fabsf(value) > param_.maxWheel * 3.0f) {
+      reset(); return false;
+    }
+  }
   WheelValues next{};
-  if (!kinematics_.inverse(limited, next)) { reset(); return false; }
-  MecanumKinematics::scaleToLimit(next, param_.maxWheel);
+  if (!solveWheelTargets(command, next)) {
+    reset(); return false;
+  }
+  // 零命令直接取消输出和积分，不通过减速斜坡或 PID 产生反向制动力。
+  if (command.vx == 0.0f && command.vy == 0.0f && command.wz == 0.0f) {
+    reset(); return true;
+  }
   float peak = 0.0f;
   for (uint8_t i = 0; i < wheelCount; ++i) {
     const float delta = fabsf(next.value[i] - target_.value[i]);

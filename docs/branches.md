@@ -23,11 +23,13 @@ sudo python3 tools/keyboard_control.py --port /dev/ttyUSB0
 
 默认复用原来的开环测试，活动轮占空比 70%，按 `-` / `=` 每次减 / 加 1%。需要更低占空比时加 `--duty 0.6`，低于电机起动阈值可能不转。
 
-测试当前轮速闭环和反馈保护时运行：
+测试当前轮速闭环时运行（任一活动轮解算目标不得低于 `0.30 m/s`，对应单轴最低阈值 `|vx| >= 0.30 m/s`、`|vy| >= 0.30 m/s`、`|wz| >= 1.49 rad/s`）：
 
 ```bash
-sudo python3 tools/keyboard_control.py --port /dev/ttyUSB0 --closed-loop --speed 0.1 --turn 0.5
+sudo python3 tools/keyboard_control.py --port /dev/ttyUSB0 --closed-loop --speed 0.3 --turn 2.0
 ```
+
+若发送低于上述阈值的非零速度（例如 `--speed 0.1 --turn 0.5`），底盘会保持使能并停机等待，`S` 行持续上报错误码 `5`，直到收到正常速度指令后自动清零恢复。
 
 W/S 前后，A/D 左右，Q/E 旋转，松开运动键停车。U 抬升，J 下降，空格零速度，T 急停 / 解除，R 重新使能，Esc 停车并退出。坐标遵循 ROS，x 前、y 左、z 上。脚本每 100 ms 刷新速度，固件 500 ms 无有效速度命令会停车并解除使能。
 
