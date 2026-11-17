@@ -82,6 +82,27 @@ def main():
         return 2
 
     required_keys = {getattr(ecodes, name) for name in key_names}
+    digit_duty_map = {}
+    for level, names in enumerate(
+        (
+            ("KEY_1", "KEY_KP1"),
+            ("KEY_2", "KEY_KP2"),
+            ("KEY_3", "KEY_KP3"),
+            ("KEY_4", "KEY_KP4"),
+            ("KEY_5", "KEY_KP5"),
+            ("KEY_6", "KEY_KP6"),
+            ("KEY_7", "KEY_KP7"),
+            ("KEY_8", "KEY_KP8"),
+            ("KEY_9", "KEY_KP9"),
+            ("KEY_0", "KEY_KP0"),
+        ),
+        start=1,
+    ):
+        preset = round(0.40 + (level - 1) * 0.20 / 9.0, 2)
+        for name in names:
+            code = getattr(ecodes, name, None)
+            if code is not None:
+                digit_duty_map[code] = preset
 
     def open_keyboard():
         if args.device:
@@ -135,6 +156,8 @@ def main():
                     mode = "轮速闭环" if closed_loop else "手动开环"
                     print(f"ESP32: 已由状态帧确认{mode}使能")
                     return "OK"
+            if should_log(line, log_odom, log_imu):
+                print(f"ESP32: {line}")
         return None
 
     try:
@@ -179,7 +202,7 @@ def main():
             print(f"松开运动键立即停车；W/S和A/D为{speed:g}m/s，Q/E为{turn:g}rad/s。")
         else:
             print(f"松开运动键立即停车；每个活动轮固定输出{duty * 100:g}%占空比。")
-            print("保持运动键时，按-降低、按=提高占空比，每次变化1%。")
+            print("支持边按住运动键边切换占空比：数字键 1～9/0 对应 0.40～0.60，按 -/= 每次微调 0.01。")
         print("E行：目标轮速FL/RL/FR/RR，实测轮速FL/RL/FR/RR，占空比FL/RL/FR/RR。")
         if log_odom:
             print("O行：时间戳、x、y、yaw、vx、vy、wz；x/y为世界坐标，速度为车体坐标。")
@@ -190,6 +213,17 @@ def main():
         last_velocity = None
         last_sent = 0.0
         running = True
+
+        def apply_manual_duty(next_duty):
+            nonlocal duty
+            next_duty = min(1.0, max(0.01, round(next_duty, 2)))
+            send(f"manual duty {next_duty:.4f}")
+            reply = read_reply(0.2)
+            if reply is None or reply == "OK":
+                duty = next_duty
+                print(f"开环占空比：{duty:.2f}")
+            else:
+                print("ESP32未确认新的开环占空比。", file=sys.stderr)
 
         def velocity():
             vx = int(ecodes.KEY_W in pressed) - int(ecodes.KEY_S in pressed)
@@ -280,14 +314,10 @@ def main():
                     if (not closed_loop and is_down and
                             key in (ecodes.KEY_MINUS, ecodes.KEY_EQUAL)):
                         step = -0.01 if key == ecodes.KEY_MINUS else 0.01
-                        next_duty = min(1.0, max(0.01, round(duty + step, 2)))
-                        send(f"manual duty {next_duty:.4f}")
-                        reply = read_reply(0.2)
-                        if reply is None or reply == "OK":
-                            duty = next_duty
-                            print(f"开环占空比：{duty:.2f}")
-                        else:
-                            print("ESP32未确认新的开环占空比。", file=sys.stderr)
+                        apply_manual_duty(duty + step)
+                        continue
+                    if not closed_loop and is_down and key in digit_duty_map:
+                        apply_manual_duty(digit_duty_map[key])
                         continue
                     if key in required_keys and key not in (
                             ecodes.KEY_SPACE, ecodes.KEY_R, ecodes.KEY_T, ecodes.KEY_ESC,
