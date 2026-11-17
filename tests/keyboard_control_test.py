@@ -158,20 +158,28 @@ class KeyboardControlTest(unittest.TestCase):
         ))
 
     def test_digit_presets_adjust_open_loop_duty(self):
-        ecodes = self._base_ecodes(KEY_1=2, KEY_5=6, KEY_0=11)
+        ecodes = self._base_ecodes(KEY_1=2, KEY_5=6, KEY_9=10)
         status, commands = self._run_session(ecodes, lambda e: [
-            types.SimpleNamespace(type=e.EV_KEY, code=e.KEY_W, value=1),
             types.SimpleNamespace(type=e.EV_KEY, code=e.KEY_1, value=1),
+            types.SimpleNamespace(type=e.EV_KEY, code=e.KEY_1, value=0),
             types.SimpleNamespace(type=e.EV_KEY, code=e.KEY_5, value=1),
-            types.SimpleNamespace(type=e.EV_KEY, code=e.KEY_0, value=1),
-            types.SimpleNamespace(type=e.EV_KEY, code=e.KEY_W, value=0),
+            types.SimpleNamespace(type=e.EV_KEY, code=e.KEY_5, value=0),
+            types.SimpleNamespace(type=e.EV_KEY, code=e.KEY_9, value=1),
+            types.SimpleNamespace(type=e.EV_KEY, code=e.KEY_9, value=0),
             types.SimpleNamespace(type=e.EV_KEY, code=e.KEY_ESC, value=1),
         ])
         self.assertEqual(status, 0)
-        self.assertIn("manual duty 0.4000", commands)
-        self.assertIn("manual duty 0.4900", commands)
-        self.assertIn("manual duty 0.6000", commands)
-        self.assertIn("manual vel 1.0000 0.0000 0.0000", commands)
+        d1 = commands.index("manual duty 0.4500")
+        v1 = commands.index("manual vel 1.0000 0.0000 0.0000", d1)
+        s1 = commands.index("manual vel 0.0000 0.0000 0.0000", v1)
+        d5 = commands.index("manual duty 0.5500", s1)
+        v5 = commands.index("manual vel 1.0000 0.0000 0.0000", d5)
+        s5 = commands.index("manual vel 0.0000 0.0000 0.0000", v5)
+        d9 = commands.index("manual duty 0.6500", s5)
+        v9 = commands.index("manual vel 1.0000 0.0000 0.0000", d9)
+        self.assertLess(v1, s1)
+        self.assertLess(s5, d9)
+        self.assertLess(d9, v9)
 
 
 if __name__ == "__main__":

@@ -94,11 +94,10 @@ def main():
             ("KEY_7", "KEY_KP7"),
             ("KEY_8", "KEY_KP8"),
             ("KEY_9", "KEY_KP9"),
-            ("KEY_0", "KEY_KP0"),
         ),
         start=1,
     ):
-        preset = round(0.40 + (level - 1) * 0.20 / 9.0, 2)
+        preset = round(0.45 + (level - 1) * 0.025, 3)
         for name in names:
             code = getattr(ecodes, name, None)
             if code is not None:
@@ -202,7 +201,7 @@ def main():
             print(f"松开运动键立即停车；W/S和A/D为{speed:g}m/s，Q/E为{turn:g}rad/s。")
         else:
             print(f"松开运动键立即停车；每个活动轮固定输出{duty * 100:g}%占空比。")
-            print("支持边按住运动键边切换占空比：数字键 1～9/0 对应 0.40～0.60，按 -/= 每次微调 0.01。")
+            print("按住数字键 1～9 可直接分别以 0.45～0.65 占空比前进，松开即停；按 -/= 每次微调 0.01。")
         print("E行：目标轮速FL/RL/FR/RR，实测轮速FL/RL/FR/RR，占空比FL/RL/FR/RR。")
         if log_odom:
             print("O行：时间戳、x、y、yaw、vx、vy、wz；x/y为世界坐标，速度为车体坐标。")
@@ -216,17 +215,19 @@ def main():
 
         def apply_manual_duty(next_duty):
             nonlocal duty
-            next_duty = min(1.0, max(0.01, round(next_duty, 2)))
+            next_duty = min(1.0, max(0.01, round(next_duty, 3)))
             send(f"manual duty {next_duty:.4f}")
             reply = read_reply(0.2)
             if reply is None or reply == "OK":
                 duty = next_duty
-                print(f"开环占空比：{duty:.2f}")
-            else:
-                print("ESP32未确认新的开环占空比。", file=sys.stderr)
+                print(f"开环占空比：{duty:.3f}")
+                return True
+            print("ESP32未确认新的开环占空比。", file=sys.stderr)
+            return False
 
         def velocity():
-            vx = int(ecodes.KEY_W in pressed) - int(ecodes.KEY_S in pressed)
+            forward_digit = not closed_loop and any(k in digit_duty_map for k in pressed)
+            vx = int(ecodes.KEY_W in pressed or forward_digit) - int(ecodes.KEY_S in pressed)
             vy = int(ecodes.KEY_A in pressed) - int(ecodes.KEY_D in pressed)
             wz = int(ecodes.KEY_Q in pressed) - int(ecodes.KEY_E in pressed)
             scale = max(1.0, math.hypot(vx, vy))
@@ -316,8 +317,12 @@ def main():
                         step = -0.01 if key == ecodes.KEY_MINUS else 0.01
                         apply_manual_duty(duty + step)
                         continue
-                    if not closed_loop and is_down and key in digit_duty_map:
-                        apply_manual_duty(digit_duty_map[key])
+                    if not closed_loop and key in digit_duty_map:
+                        if is_down:
+                            if apply_manual_duty(digit_duty_map[key]):
+                                pressed.add(key)
+                        elif is_up:
+                            pressed.discard(key)
                         continue
                     if key in required_keys and key not in (
                             ecodes.KEY_SPACE, ecodes.KEY_R, ecodes.KEY_T, ecodes.KEY_ESC,
