@@ -42,7 +42,7 @@ int main() {
   send("arm\n");
   assert(robotController.armed() && !robotController.manualMode());
   Serial.output.clear();
-  send("vel 0.1 0 0\n"); step();
+  send("vel 0.35 0 0\n"); step();
   assert(Serial.output.find("OK\n") != std::string::npos);
   assert(robotController.armed() && !robotController.motionAllowed());
   assert(robotController.fault() == robot::RobotFault::feedback);
@@ -51,11 +51,11 @@ int main() {
   for (int n = 0; n < 10; ++n) send("vel 0 0 0\n");
   assert(robotController.armed() && robotController.fault() == robot::RobotFault::feedback);
   assert(Serial.output.find(" 1 1 0 0 5 ") != std::string::npos);
-  send("vel 0 0 1.48\n"); step();
+  send("vel 0 0 1.97\n"); step();
   assert(robotController.fault() == robot::RobotFault::feedback);
-  send("vel 0 0 1.5\n"); step();
+  send("vel 0 0 1.98\n"); step();
   assert(robotController.fault() == robot::RobotFault::none && robotController.motionAllowed());
-  send("vel 0.35 0 0\n"); step();
+  send("vel 0.45 0 0\n"); step();
   assert(robotController.motionAllowed());
   send("estop 1\n");
   assert(robotController.emergencyStopped() && !robotController.armed());
@@ -64,7 +64,7 @@ int main() {
   Serial.output.clear();
   send("vel nan 0 0\n");
   assert(Serial.output.find("ERR command_or_state") != std::string::npos);
-  send("arm\n"); send("vel 0.35 0 0\n");
+  send("arm\n"); send("vel 0.45 0 0\n");
   for (int n = 0; n < 51; ++n) step();
   assert(!robotController.armed());
 }

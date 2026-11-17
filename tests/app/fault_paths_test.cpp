@@ -20,7 +20,7 @@ static void stopped() {
 int main() {
   robot::RobotController c;
   assert(c.begin()); tick(c); assert(c.arm());
-  assert(c.commandVelocity({0.35f, 0, 0})); tick(c);
+  assert(c.commandVelocity({0.45f, 0, 0})); tick(c);
   if (robot::config::emergencyStopPin >= 0) {
     // 常闭急停断线或触发后必须锁存，恢复引脚不会自动解除。
     fakePin[robot::config::emergencyStopPin] =
@@ -34,8 +34,8 @@ int main() {
     c.setEmergencyStop(true); stopped(); assert(c.emergencyStopped());
   }
   c.setEmergencyStop(false); assert(!c.emergencyStopped());
-  assert(!c.commandVelocity({0.35f, 0, 0}));
-  assert(c.arm()); assert(c.commandVelocity({0.35f, 0, 0})); tick(c);
+  assert(!c.commandVelocity({0.45f, 0, 0}));
+  assert(c.arm()); assert(c.commandVelocity({0.45f, 0, 0})); tick(c);
   fakePcntFailure = 1; tick(c); stopped();
   assert(c.fault() == robot::RobotFault::encoder);
   fakePcntFailure = 0; assert(!c.arm());
@@ -51,7 +51,7 @@ int main() {
   robot::RobotController reversed;
   assert(reversed.begin()); tick(reversed); assert(reversed.arm());
   for (int i = 0; i < 80 && reversed.fault() == robot::RobotFault::none; ++i) {
-    if (i % 5 == 0) assert(reversed.commandVelocity({0.35f, 0, 0}));
+    if (i % 5 == 0) assert(reversed.commandVelocity({0.45f, 0, 0}));
     for (auto &count : fakePcnt) count = -1;
     tick(reversed);
   }

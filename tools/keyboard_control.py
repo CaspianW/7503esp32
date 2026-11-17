@@ -23,8 +23,8 @@ def parse_args():
         help="发送底盘轮速闭环的 arm/vel 命令；默认使用手动开环命令"
     )
     parser.add_argument(
-        "--speed", type=float, default=0.3,
-        help="闭环平移速度，单位m/s，默认0.3"
+        "--speed", type=float, default=0.4,
+        help="闭环平移速度，单位m/s，默认0.4"
     )
     parser.add_argument(
         "--turn", type=float, default=2.0,
@@ -50,7 +50,7 @@ def main():
     if args.baud <= 0:
         print("波特率必须是正数。", file=sys.stderr)
         return 2
-    speed = getattr(args, "speed", 0.3)
+    speed = getattr(args, "speed", 0.4)
     turn = getattr(args, "turn", 2.0)
     duty = getattr(args, "duty", 0.7)
     log_odom = getattr(args, "log_odom", False)
