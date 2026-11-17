@@ -68,6 +68,9 @@ private:
   void stopChassis();
   bool initLift();
   void fail(RobotFault fault);
+  bool hasLatchedFault() const;
+  void clearLowSpeedFault();
+  bool commandTooSlow(const Twist2D &command) const;
   bool physicalStop() const;
   bool feedbackPlausible(uint32_t now);
   MotorDriver motorDriver_;
@@ -93,6 +96,7 @@ private:
   uint32_t badFeedbackSince_[wheelCount] = {}; // 单位 ms
   bool badFeedback_[wheelCount] = {};
   RobotFault fault_ = RobotFault::none;
+  bool lowSpeedFault_ = false;
   bool started_ = false;
   bool initialized_ = false;
   bool benchMode_ = false;

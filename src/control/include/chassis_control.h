@@ -30,6 +30,7 @@ struct ChassisParam {
 class ChassisControl {
 public:
   bool configure(const ChassisParam &param);
+  bool solveWheelTargets(const Twist2D &command, WheelValues &wheel) const;
   bool update(const Twist2D &command, const WheelValues &measured,
               float dt, WheelValues &duty);
   void reset();

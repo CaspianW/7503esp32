@@ -30,7 +30,7 @@ int main() {
   fakeNow += 10000; c.update();
   send(wire(PacketType::arm, {1}));
   assert(acknowledged(Serial.output, PacketType::arm, 0) && c.armed());
-  send(velocityWire(.1f, 0, 0));
+  send(velocityWire(.45f, 0, 0));
   assert(acknowledged(Serial.output, PacketType::velocity, 0));
   fakeNow += 10000; c.update();
   assert(c.motionAllowed() && fakePwm[0] != 0);
@@ -43,7 +43,21 @@ int main() {
   for (uint8_t n = 0; n < robot::wheelCount; ++n) assert(fakePwm[n] == 0);
   assert(c.liftActive() && c.liftTarget() == 1 && fakePwm[4] == holding);
   send(wire(PacketType::arm, {1}));
-  send(velocityWire(.1f, 0, 0));
+  send(velocityWire(.35f, 0, 0));
+  assert(acknowledged(Serial.output, PacketType::velocity, 0));
+  fakeNow += 10000; c.update();
+  assert(c.armed() && !c.motionAllowed() && fakePwm[0] == 0);
+  assert(c.fault() == robot::RobotFault::feedback);
+  send(velocityWire(0, 0, 0));
+  assert(c.armed() && c.fault() == robot::RobotFault::feedback);
+  send(wire(PacketType::statusRequest));
+  {
+    const auto statusPackets = packets(Serial.output);
+    const auto *status = findPacket(statusPackets, PacketType::status);
+    assert(status && status->data[1] == 5 && (status->data[0] & 2));
+  }
+  send(velocityWire(.45f, 0, 0));
+  assert(c.fault() == robot::RobotFault::none);
   fakeNow += 10000; c.update();
   assert(c.motionAllowed() && fakePwm[0] != 0);
   send(wire(PacketType::arm, {0}));
@@ -72,7 +86,7 @@ int main() {
   assert(c.liftTarget() == 0 && packets(Serial.output).size() == 2);
 
   send(wire(PacketType::arm, {1}));
-  send(velocityWire(.1f, 0, 0));
+  send(velocityWire(.45f, 0, 0));
   for (int n = 0; n < 50; ++n) {
     fakeNow += 10000;
     c.update();

@@ -32,7 +32,32 @@ int main() {
   assert(controller.speedReady() ==
          (robot::config::encoderReadEnabled || robot::config::chassisControlEnabled));
   assert(controller.arm());
-  assert(controller.commandVelocity({0.1f, 0, 0}));
+  // 低速指令应保持使能、清零输出并持续上报反馈故障 5，收到正常速度后自动恢复。
+  assert(controller.commandVelocity({0.35f, 0, 0}));
+  tick(controller);
+  assert(controller.armed() && !controller.motionAllowed() && stopped());
+  assert(controller.fault() == robot::RobotFault::feedback);
+  assert(controller.commandVelocity({0, 0, 0}));
+  tick(controller);
+  assert(controller.armed() && stopped() && controller.fault() == robot::RobotFault::feedback);
+  assert(controller.commandVelocity({0, 0.39f, 0}));
+  tick(controller);
+  assert(controller.armed() && stopped() && controller.fault() == robot::RobotFault::feedback);
+  assert(controller.commandVelocity({0, 0, 1.97f}));
+  tick(controller);
+  assert(controller.armed() && stopped() && controller.fault() == robot::RobotFault::feedback);
+  assert(controller.commandVelocity({0.45f, 0, 0.5f})); // 内侧轮低于 0.4 m/s 也应拦截
+  tick(controller);
+  assert(controller.armed() && stopped() && controller.fault() == robot::RobotFault::feedback);
+  if (robot::config::liftOutputsEnabled)
+    assert(controller.commandLift(robot::LiftPosition::raised));
+  assert(controller.commandVelocity({0.2828f, 0.2828f, 0})); // 斜向活动轮 >= 0.4 m/s 自动恢复
+  tick(controller);
+  assert(controller.fault() == robot::RobotFault::none && controller.motionAllowed());
+  assert(controller.commandVelocity({0, 0, 1.98f}));
+  tick(controller);
+  assert(controller.fault() == robot::RobotFault::none && controller.motionAllowed());
+  assert(controller.commandVelocity({0.45f, 0, 0}));
   for (int i = 0; i < 20; ++i) tick(controller);
   assert(controller.motionAllowed());
   assert(!stopped());
@@ -42,25 +67,25 @@ int main() {
   for (int i = 0; i < 50; ++i) tick(controller);
   assert(!controller.armed()); // 零指令也会过期，不能残留使能
   assert(controller.arm());
-  assert(controller.commandVelocity({0.1f, 0, 0}));
+  assert(controller.commandVelocity({0.45f, 0, 0}));
   for (int i = 0; i < 50; ++i) tick(controller);
   assert(!controller.motionAllowed());
   assert(!controller.armed());
   assert(stopped());
-  assert(!controller.commandVelocity({0.1f, 0, 0}));
+  assert(!controller.commandVelocity({0.45f, 0, 0}));
   assert(controller.arm());
-  assert(controller.commandVelocity({0.1f, 0, 0}));
+  assert(controller.commandVelocity({0.45f, 0, 0}));
   tick(controller);
   controller.setEmergencyStop(true);
   assert(stopped()); assert(!controller.motionAllowed());
   assert(!controller.arm());
-  assert(!controller.commandVelocity({0.1f, 0, 0}));
+  assert(!controller.commandVelocity({0.45f, 0, 0}));
   controller.setEmergencyStop(false);
-  assert(!controller.commandVelocity({0.1f, 0, 0}));
+  assert(!controller.commandVelocity({0.45f, 0, 0}));
   assert(controller.arm());
   assert(!controller.commandVelocity({NAN, 0, 0}));
   assert(stopped()); assert(!controller.armed());
-  assert(controller.arm()); assert(controller.commandVelocity({0.1f, 0, 0}));
+  assert(controller.arm()); assert(controller.commandVelocity({0.45f, 0, 0}));
   tick(controller, 50001);
   assert(controller.fault() == robot::RobotFault::timing);
   assert(stopped()); assert(!controller.arm());
@@ -68,11 +93,12 @@ int main() {
   robot::RobotController stalled;
   assert(stalled.begin()); tick(stalled); assert(stalled.arm());
   for (int i = 0; i < 80 && stalled.fault() == robot::RobotFault::none; ++i) {
-    if (i % 5 == 0) assert(stalled.commandVelocity({0.1f, 0, 0}));
+    if (i % 5 == 0) assert(stalled.commandVelocity({0.45f, 0, 0}));
     tick(stalled);
   }
   assert(stalled.fault() == robot::RobotFault::feedback);
   assert(stopped()); assert(!stalled.arm());
+  assert(!stalled.commandVelocity({0.45f, 0, 0}));
   robot::RobotController stoppedBeforeBegin;
   stoppedBeforeBegin.setEmergencyStop(true);
   assert(!stoppedBeforeBegin.begin());
