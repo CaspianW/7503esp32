@@ -45,4 +45,27 @@ int main() {
   assert(near(invalid.update(1.0f, 0.0f, 0.01f), 1.0f));
   assert(near(invalid.update(1.0f, 0.0f, 0.0f), 0.0f));
   assert(near(invalid.update(1.0f, 0.0f, 0.01f), 1.0f));
+
+  // 含前馈的上饱和抗积分：总输出超过 outMax 时停止正向积分累积。
+  robot::Pid ffUpper;
+  ffUpper.configure(robot::PidParam(1.0f, 1.0f, 0.0f, 0.8f, 10.0f));
+  assert(near(ffUpper.update(1.0f, 0.0f, 1.0f, 0.6f, 0.0f), 0.8f));
+  assert(near(ffUpper.update(0.0f, 0.0f, 1.0f, 0.0f, 0.0f), 0.0f));
+
+  // 含 minDuty 的下饱和抗积分：总输出触及正向下限时停止负向积分累积。
+  robot::Pid ffLower;
+  ffLower.configure(robot::PidParam(1.0f, 1.0f, 0.0f, 0.8f, 10.0f));
+  assert(near(ffLower.update(0.4f, 0.8f, 1.0f, 0.6f, 0.5f), 0.5f));
+  assert(near(ffLower.update(0.4f, 0.3f, 0.1f, 0.6f, 0.5f), 0.71f));
+
+  // minDuty=0 时保持与目标同向（不反向制动），超速被截断到 0 且不产生负向积分饱和。
+  robot::Pid sameSignPos;
+  sameSignPos.configure(robot::PidParam(1.0f, 1.0f, 0.0f, 1.0f, 1.0f));
+  assert(near(sameSignPos.update(0.4f, 0.8f, 0.1f, 0.0f, 0.0f), 0.0f));
+  assert(near(sameSignPos.update(0.4f, 0.3f, 0.1f, 0.0f, 0.0f), 0.11f));
+
+  robot::Pid sameSignNeg;
+  sameSignNeg.configure(robot::PidParam(1.0f, 1.0f, 0.0f, 1.0f, 1.0f));
+  assert(near(sameSignNeg.update(-0.4f, -0.8f, 0.1f, 0.0f, 0.0f), 0.0f));
+  assert(near(sameSignNeg.update(-0.4f, -0.3f, 0.1f, 0.0f, 0.0f), -0.11f));
 }

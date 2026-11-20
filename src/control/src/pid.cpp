@@ -29,9 +29,10 @@ void Pid::configure(const PidParam &param) {
   reset();
 }
 
-float Pid::update(float target, float measured, float dt) {
+float Pid::update(float target, float measured, float dt,
+                  float feedforward, float minDuty) {
   if (!isfinite(target) || !isfinite(measured) || !isfinite(dt) ||
-      dt <= 0.0f) {
+      dt <= 0.0f || !isfinite(feedforward) || !isfinite(minDuty)) {
     // 忽略无效采样，并清除微分历史，避免下一次采样产生微分尖峰。
     hasPrev_ = false;
     return 0.0f;
@@ -67,26 +68,37 @@ float Pid::update(float target, float measured, float dt) {
     }
   }
 
+  float lowerBound = -param_.outMax;
+  float upperBound = param_.outMax;
+  if (minDuty >= 0.0f && target != 0.0f) {
+    const float minFloor = minDuty < param_.outMax ? minDuty : param_.outMax;
+    if (target > 0.0f) {
+      lowerBound = minFloor;
+    } else {
+      upperBound = -minFloor;
+    }
+  }
+
   const float pdTerm = pTerm + dTerm;
-  const float nextOut = pdTerm + param_.ki * nextISum;
+  const float nextOut = feedforward + pdTerm + param_.ki * nextISum;
   const float iDelta = param_.ki * (nextISum - iSum_);
   const bool windsUp =
-      (nextOut > param_.outMax && iDelta > 0.0f) ||
-      (nextOut < -param_.outMax && iDelta < 0.0f);
+      (nextOut > upperBound && iDelta > 0.0f) ||
+      (nextOut < lowerBound && iDelta < 0.0f);
   // NaN 表示中间计算已溢出或出现无效组合，不能据此更新积分状态。
   if (!isnan(nextOut) && !isnan(iDelta) && !windsUp) {
     iSum_ = nextISum;
   }
 
   const float iTerm = param_.ki * iSum_;
-  float out = pdTerm + iTerm;
+  float out = feedforward + pdTerm + iTerm;
   if (isnan(out)) {
     out = 0.0f;
   }
-  if (out > param_.outMax) {
-    out = param_.outMax;
-  } else if (out < -param_.outMax) {
-    out = -param_.outMax;
+  if (out > upperBound) {
+    out = upperBound;
+  } else if (out < lowerBound) {
+    out = lowerBound;
   }
 
   prevErr_ = err;

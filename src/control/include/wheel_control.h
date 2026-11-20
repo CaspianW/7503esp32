@@ -23,6 +23,9 @@ public:
   // target、measured 的轮速单位为 m/s；dt 单位为 s。
   WheelValues update(const WheelValues &target,
                      const WheelValues &measured, float dt);
+  WheelValues update(const WheelValues &target,
+                     const WheelValues &measured, float dt,
+                     const WheelValues &feedforward, float minDuty);
   void reset();
 
 private:

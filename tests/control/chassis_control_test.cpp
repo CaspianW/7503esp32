@@ -41,5 +41,21 @@ int main() {
   assert(!c.update({0.1f, 0, 0}, measured, 0.051f, duty));
   measured.value[2] = INFINITY;
   assert(!c.update({0.1f, 0, 0}, measured, 0.01f, duty));
+
+  robot::ChassisControl purePi;
+  robot::ChassisParam piParam{0.150f, 0.255f, 0.5f, 2.0f, 0.7f, 50.0f,
+                             0.0f, 0.0f, 0.0f,
+                             robot::PidParam(0.8f, 6.0f, 0.0f, 1.0f, 0.25f, true)};
+  assert(purePi.configure(piParam));
+  robot::WheelValues fastMeasured{{0.6f, 0.6f, 0.6f, 0.6f}};
+  assert(purePi.update({0.4f, 0, 0}, fastMeasured, 0.01f, duty));
+  for (auto value : duty.value) assert(value == 0.0f);
+  robot::WheelValues slowMeasured{{0.2f, 0.2f, 0.2f, 0.2f}};
+  assert(purePi.update({0.4f, 0, 0}, slowMeasured, 0.01f, duty));
+  for (auto value : duty.value) assert(value > 0.17f);
+  assert(purePi.update({0.2828f, 0.2828f, 0}, slowMeasured, 0.01f, duty));
+  assert(duty.value[robot::frontLeft] == 0.0f && duty.value[robot::rearRight] == 0.0f);
+  assert(duty.value[robot::rearLeft] > 0.0f && duty.value[robot::frontRight] > 0.0f);
+
   p.pid.kp = 0; assert(!c.configure(p));
 }
