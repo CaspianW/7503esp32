@@ -97,18 +97,14 @@ bool ChassisControl::update(const Twist2D &command,
   const float scale = peak > maxStep ? maxStep / peak : 1.0f;
   for (uint8_t i = 0; i < wheelCount; ++i)
     target_.value[i] += (next.value[i] - target_.value[i]) * scale;
-  duty = wheels_.update(target_, measured, dt);
+  WheelValues feedforward{};
   for (uint8_t i = 0; i < wheelCount; ++i) {
     const float target = target_.value[i];
     if (target != 0.0f) {
-      duty.value[i] += copysignf(param_.ks, target) + param_.kv * target;
-      if (duty.value[i] > param_.pid.outMax) duty.value[i] = param_.pid.outMax;
-      if (duty.value[i] < -param_.pid.outMax) duty.value[i] = -param_.pid.outMax;
-      // 实测低于60%无法保证四轮转动；非零目标始终保持最低有效输出。
-      if (fabsf(duty.value[i]) < param_.minDuty)
-        duty.value[i] = copysignf(param_.minDuty, target);
+      feedforward.value[i] = copysignf(param_.ks, target) + param_.kv * target;
     }
   }
+  duty = wheels_.update(target_, measured, dt, feedforward, param_.minDuty);
   return true;
 }
 

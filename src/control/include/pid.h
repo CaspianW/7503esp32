@@ -34,7 +34,9 @@ public:
   // 配置增益及限幅；重新配置会清除积分和微分历史。
   void configure(const PidParam &param);
   // dt 为采样周期，单位为秒；首次有效更新时微分项为零。
-  float update(float target, float measured, float dt);
+  // feedforward 为外部前馈；minDuty >= 0 时对非零目标施加同向输出下限并参与抗饱和。
+  float update(float target, float measured, float dt,
+               float feedforward = 0.0f, float minDuty = -1.0f);
   void reset();
 
 private:

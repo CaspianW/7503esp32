@@ -59,17 +59,16 @@ constexpr uint32_t liftTravelTimeMs = 3000; // 单位 ms，发出端点 PWM 后�
 constexpr uint32_t controlPeriod = 10000;  // 单位 µs，100 Hz
 constexpr uint32_t imuPeriod = 10000;      // 单位 µs，100 Hz
 
-// 根据70%占空比约0.63～0.69m/s的空载实测值设置首轮闭环整定参数。
-// 首轮测试不使用D项，避免编码器量化噪声被放大。
-constexpr float wheelPidKp = 0.4f;
-constexpr float wheelPidKi = 0.5f;
+// 暂不使用前馈与硬占空比地板，由纯 PI 自适应空载/落地负载；D 项保持 0 避免放大编码器量化噪声。
+constexpr float wheelPidKp = 0.8f;
+constexpr float wheelPidKi = 6.0f;
 constexpr float wheelPidKd = 0.0f;
-constexpr float wheelPidOutputLimit = 0.85f; // 单位占空比，配合地面起步下限保留足够调速余量
-constexpr float wheelPidIntegralLimit = 1.0f;
-// 实测静摩擦和速度前馈：duty = sign(target) * wheelKs + wheelKv * target。
-constexpr float wheelKs = 0.515f; // 单位占空比，按0.55～0.75实测拟合
-constexpr float wheelKv = 0.275f; // 单位 (占空比)/(m/s)
-constexpr float wheelMinDuty = 0.625f; // 单位占空比，按实测地面 8 档稳走下限设定
+constexpr float wheelPidOutputLimit = 1.0f; // 单位占空比，给地面带载留足补偿余量
+constexpr float wheelPidIntegralLimit = 0.25f; // Ki*iMax=1.5>=1.0，兼顾满输出与防超调
+// 前馈暂置零，待实车采集落地稳态数据后再按需补回。
+constexpr float wheelKs = 0.0f; // 单位占空比
+constexpr float wheelKv = 0.0f; // 单位 (占空比)/(m/s)
+constexpr float wheelMinDuty = 0.0f; // 单位占空比，去掉硬地板允许空转自由降速
 
 constexpr float maxLinearSpeed = 0.5f;  // 单位 m/s，低于当前实测空载轮速
 constexpr float maxAngularSpeed = 2.0f; // 单位 rad/s
@@ -81,7 +80,7 @@ constexpr bool wheelMappingConfirmed = true;
 // 索引为逻辑轮序 FL、RL、FR、RR，值为电气通道 M1～M4 的 0～3。
 // 实车接线：FL=M2、RL=M4、FR=M1、RR=M3。
 constexpr uint8_t wheelChannel[wheelCount] = {1, 3, 0, 2};
-// 对应 wheelMinDuty=0.625 的最小可控轮速 (0.625 - 0.515) / 0.275 = 0.40 m/s；
+// 沿用地面实测下限 0.40 m/s；
 // 换算到单轴最低指令：|vx| >= 0.40 m/s，|vy| >= 0.40 m/s，|wz| >= 0.40 / 0.2025 ≈ 1.9753 rad/s。
 constexpr float minWheelSpeed = 0.4f; // 单位 m/s，非零活动轮目标速度下限
 constexpr float maxWheelSpeed = 0.7f; // 单位 m/s，按四轮当前最大实测值取整

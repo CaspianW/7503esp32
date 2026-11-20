@@ -40,6 +40,24 @@ WheelValues WheelControl::update(const WheelValues &target,
   return duty;
 }
 
+WheelValues WheelControl::update(const WheelValues &target,
+                                 const WheelValues &measured,
+                                 float dt,
+                                 const WheelValues &feedforward,
+                                 float minDuty) {
+  WheelValues duty{};
+  for (uint8_t i = 0; i < wheelCount; ++i) {
+    if (target.value[i] == 0.0f) {
+      pid_[i].reset();
+      duty.value[i] = 0.0f;
+    } else {
+      duty.value[i] = pid_[i].update(target.value[i], measured.value[i],
+                                     dt, feedforward.value[i], minDuty);
+    }
+  }
+  return duty;
+}
+
 void WheelControl::reset() {
   for (uint8_t i = 0; i < wheelCount; ++i) {
     pid_[i].reset();
