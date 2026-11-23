@@ -59,14 +59,14 @@ constexpr uint32_t liftTravelTimeMs = 3000; // 单位 ms，发出端点 PWM 后�
 constexpr uint32_t controlPeriod = 10000;  // 单位 µs，100 Hz
 constexpr uint32_t imuPeriod = 10000;      // 单位 µs，100 Hz
 
-// 暂不使用前馈与硬占空比地板，由纯 PI 自适应空载/落地负载；D 项保持 0 避免放大编码器量化噪声。
-constexpr float wheelPidKp = 0.8f;
-constexpr float wheelPidKi = 6.0f;
+// 温和起步前馈 + PI：Ks 跨过静摩擦起步死区、I 项消除稳态/负载差异、D 项保持 0 避免放大编码器量化噪声。
+constexpr float wheelPidKp = 0.6f;
+constexpr float wheelPidKi = 5.0f;
 constexpr float wheelPidKd = 0.0f;
 constexpr float wheelPidOutputLimit = 1.0f; // 单位占空比，给地面带载留足补偿余量
-constexpr float wheelPidIntegralLimit = 0.25f; // Ki*iMax=1.5>=1.0，兼顾满输出与防超调
-// 前馈暂置零，待实车采集落地稳态数据后再按需补回。
-constexpr float wheelKs = 0.0f; // 单位占空比
+constexpr float wheelPidIntegralLimit = 0.25f; // Ki*iMax=1.25>=1.0，兼顾满输出与防超调
+// 起步前馈仅作静摩擦补偿，保留 minDuty=0 允许空转自由降速。
+constexpr float wheelKs = 0.40f; // 单位占空比
 constexpr float wheelKv = 0.0f; // 单位 (占空比)/(m/s)
 constexpr float wheelMinDuty = 0.0f; // 单位占空比，去掉硬地板允许空转自由降速
 
