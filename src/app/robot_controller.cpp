@@ -187,6 +187,7 @@ void RobotController::clearLowSpeedFault() {
 }
 
 bool RobotController::commandTooSlow(const Twist2D &command) const {
+  if (config::minWheelSpeed <= 0.0f) return false;
   WheelValues wheel{};
   if (!chassis_.solveWheelTargets(command, wheel)) return true;
   const float threshold = config::minWheelSpeed - 1e-4f;

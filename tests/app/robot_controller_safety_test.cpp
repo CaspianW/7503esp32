@@ -32,31 +32,22 @@ int main() {
   assert(controller.speedReady() ==
          (robot::config::encoderReadEnabled || robot::config::chassisControlEnabled));
   assert(controller.arm());
-  // 低速指令应保持使能、清零输出并持续上报反馈故障 5，收到正常速度后自动恢复。
-  assert(controller.commandVelocity({0.35f, 0, 0}));
+  // 放开最低轮速下限后，0.10 m/s 与低速旋转均应正常使能输出且不触发故障 5。
+  assert(controller.commandVelocity({0.10f, 0, 0}));
   tick(controller);
-  assert(controller.armed() && !controller.motionAllowed() && stopped());
-  assert(controller.fault() == robot::RobotFault::feedback);
+  assert(controller.armed() && controller.motionAllowed() && !stopped());
+  assert(controller.fault() == robot::RobotFault::none);
   assert(controller.commandVelocity({0, 0, 0}));
   tick(controller);
-  assert(controller.armed() && stopped() && controller.fault() == robot::RobotFault::feedback);
-  assert(controller.commandVelocity({0, 0.39f, 0}));
+  assert(controller.armed() && stopped() && controller.fault() == robot::RobotFault::none);
+  assert(controller.commandVelocity({0, 0.10f, 0}));
   tick(controller);
-  assert(controller.armed() && stopped() && controller.fault() == robot::RobotFault::feedback);
-  assert(controller.commandVelocity({0, 0, 1.97f}));
+  assert(controller.armed() && controller.motionAllowed() && !stopped());
+  assert(controller.commandVelocity({0, 0, 0.50f}));
   tick(controller);
-  assert(controller.armed() && stopped() && controller.fault() == robot::RobotFault::feedback);
-  assert(controller.commandVelocity({0.45f, 0, 0.5f})); // 内侧轮低于 0.4 m/s 也应拦截
-  tick(controller);
-  assert(controller.armed() && stopped() && controller.fault() == robot::RobotFault::feedback);
+  assert(controller.armed() && controller.motionAllowed() && !stopped());
   if (robot::config::liftOutputsEnabled)
     assert(controller.commandLift(robot::LiftPosition::raised));
-  assert(controller.commandVelocity({0.2828f, 0.2828f, 0})); // 斜向活动轮 >= 0.4 m/s 自动恢复
-  tick(controller);
-  assert(controller.fault() == robot::RobotFault::none && controller.motionAllowed());
-  assert(controller.commandVelocity({0, 0, 1.98f}));
-  tick(controller);
-  assert(controller.fault() == robot::RobotFault::none && controller.motionAllowed());
   assert(controller.commandVelocity({0.45f, 0, 0}));
   for (int i = 0; i < 20; ++i) tick(controller);
   assert(controller.motionAllowed());

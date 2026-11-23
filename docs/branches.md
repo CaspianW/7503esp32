@@ -23,13 +23,11 @@ sudo python3 tools/keyboard_control.py --port /dev/ttyUSB0
 
 默认复用原来的开环测试，活动轮占空比 70%；直接按住数字键 `1`～`9` 无需按 `W` 即可分别以 `0.45`～`0.65` 占空比前进（松开即停），按 `-` / `=` 每次减 / 加 `0.01`。需要更低初始占空比时可加 `--duty 0.6`。
 
-测试当前轮速闭环时运行（任一活动轮解算目标不得低于 `0.40 m/s`，对应单轴最低阈值 `|vx| >= 0.40 m/s`、`|vy| >= 0.40 m/s`、`|wz| >= 1.98 rad/s`）：
+测试当前轮速闭环时运行（已取消最低轮速限制，可从 `--speed 0.1` / `--turn 0.5` 起逐档上调；加 `--log-odom` 可同步显示推算整车速度 `vx/vy/wz`）：
 
 ```bash
-sudo python3 tools/keyboard_control.py --port /dev/ttyUSB0 --closed-loop --speed 0.4 --turn 2.0
+sudo python3 tools/keyboard_control.py --port /dev/ttyUSB0 --closed-loop --speed 0.1 --turn 0.5 --log-odom
 ```
-
-若发送低于上述阈值的非零速度（例如 `--speed 0.1 --turn 0.5`），底盘会保持使能并停机等待，`S` 行持续上报错误码 `5`，直到收到正常速度指令后自动清零恢复。
 
 W/S 前后，A/D 左右，Q/E 旋转，松开运动键停车。U 抬升，J 下降，空格零速度，T 急停 / 解除，R 重新使能，Esc 停车并退出。坐标遵循 ROS，x 前、y 左、z 上。脚本每 100 ms 刷新速度，固件 500 ms 无有效速度命令会停车并解除使能。
 

@@ -43,17 +43,13 @@ int main() {
   for (uint8_t n = 0; n < robot::wheelCount; ++n) assert(fakePwm[n] == 0);
   assert(c.liftActive() && c.liftTarget() == 1 && fakePwm[4] == holding);
   send(wire(PacketType::arm, {1}));
-  send(velocityWire(.35f, 0, 0));
+  send(velocityWire(.10f, 0, 0));
   assert(acknowledged(Serial.output, PacketType::velocity, 0));
   fakeNow += 10000; c.update();
-  assert(c.armed() && !c.motionAllowed() && fakePwm[0] == 0);
-  assert(c.fault() == robot::RobotFault::feedback);
-  send(velocityWire(0, 0, 0));
-  assert(c.armed() && c.fault() == robot::RobotFault::feedback);
-  send(velocityWire(.45f, 0, 0));
+  assert(c.armed() && c.motionAllowed() && fakePwm[0] != 0);
   assert(c.fault() == robot::RobotFault::none);
-  fakeNow += 10000; c.update();
-  assert(c.motionAllowed() && fakePwm[0] != 0);
+  send(velocityWire(0, 0, 0));
+  assert(c.armed() && fakePwm[0] == 0 && c.fault() == robot::RobotFault::none);
   send(wire(PacketType::arm, {0}));
   assert(!c.armed() && fakePwm[0] == 0 && fakePwm[4] == holding);
 
