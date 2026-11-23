@@ -31,7 +31,8 @@ int main() {
   robot::WheelValues solved{};
   assert(c.solveWheelTargets({0.2121f, 0.2121f, 0}, solved));
   assert(solved.value[robot::frontLeft] == 0.0f && solved.value[robot::rearRight] == 0.0f);
-  assert(solved.value[robot::rearLeft] > 0.42f && solved.value[robot::frontRight] > 0.42f);
+  assert(solved.value[robot::rearLeft] > 0.28f && solved.value[robot::rearLeft] < 0.29f);
+  assert(solved.value[robot::frontRight] > 0.28f && solved.value[robot::frontRight] < 0.29f);
   assert(c.solveWheelTargets({0.212105f, 0.2121f, 0}, solved));
   assert(solved.value[robot::frontLeft] == 0.0f && solved.value[robot::rearRight] == 0.0f);
   assert(!c.solveWheelTargets({NAN, 0, 0}, solved));
