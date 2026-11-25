@@ -12,6 +12,7 @@
 namespace robot {
 bool Imu::begin() { return true; }
 bool Imu::read(ImuSample &sample) {
+  if (fakeImuReadStatus != 0) return false;
   sample = {}; sample.accelZ = 9.80665f; sample.timestamp = millis(); return true;
 }
 } // namespace robot

@@ -13,7 +13,6 @@
 #include "../config/board_pins.h"
 #include "../config/robot_config.h"
 #include <Arduino.h>
-#include <math.h>
 
 namespace robot {
 void SerialLink::begin() {
@@ -30,9 +29,6 @@ bool SerialLink::dispatch(const SerialPacket &p, RobotController &c) {
   case PacketType::velocity: {
     if (p.length != 12) return false;
     const Twist2D value{readFloatLE(p.data), readFloatLE(p.data + 4), readFloatLE(p.data + 8)};
-    if (!isfinite(value.vx) || !isfinite(value.vy) || !isfinite(value.wz)) {
-      c.disarm(); return false;
-    }
     return c.commandVelocity(value);
   }
   case PacketType::lift:

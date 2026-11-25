@@ -72,7 +72,7 @@ constexpr float wheelMinDuty = 0.0f; // 单位占空比，去掉硬地板允许�
 
 constexpr float maxLinearSpeed = 0.5f;  // 单位 m/s，低于当前实测空载轮速
 constexpr float maxAngularSpeed = 2.0f; // 单位 rad/s
-constexpr uint32_t commandTimeout = 500; // 单位 ms
+constexpr uint32_t commandTimeout = 1000; // 单位 ms
 
 // 开环台架与闭环整车模式互斥；三个确认项均满足后才接受 arm/vel。
 constexpr bool chassisControlEnabled = true;
@@ -86,14 +86,14 @@ constexpr float maxWheelSpeed = 0.7f; // 单位 m/s，按四轮当前最大实�
 // 当前不人为延迟起转；100Hz控制下每周期最多变化0.5m/s，可覆盖全部平移测试。
 constexpr float maxWheelAcceleration = 50.0f; // 单位 m/s²
 constexpr float motorDutyLimit = 1.0f; // 单位占空比，闭环输出最大值
-constexpr uint32_t maxControlGap = 50000; // 单位 µs，超时锁定停机
+constexpr uint32_t maxControlGap = 50000; // 单位 µs，超过该间隔时跳过本周期闭环输出
 constexpr uint32_t telemetryPeriod = 100000; // 单位 µs，10 Hz
 constexpr uint32_t imuFreshness = 100; // 单位 ms
 constexpr uint32_t telemetrySampleMaxAge = 100; // 单位 ms，过期的 O/I 样本不上报
 // 未确认安装朝向前里程计使用编码器推算的角速度。
 constexpr bool useImuYaw = false;
 constexpr int8_t imuYawDirection = 1; // 芯片 Z 轴与车体 Z 轴同向为 +1
-// 持续输出但编码器无反馈或方向相反时锁定停机；阈值仍需实车验证。
+// 持续输出但编码器无反馈或方向相反时停止底盘（可通过 arm 恢复）；阈值仍需实车验证。
 constexpr uint32_t feedbackTimeout = 500; // 单位 ms
 constexpr float feedbackMinDuty = 0.625f; // 单位占空比，与地面最低起转占空比一致
 constexpr float feedbackMinTarget = 0.02f; // 单位 m/s

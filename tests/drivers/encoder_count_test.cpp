@@ -8,6 +8,7 @@
  */
 
 #include "../../src/drivers/include/encoder.h"
+#include "../../src/config/robot_config.h"
 
 #include <driver/pcnt.h>
 
@@ -41,5 +42,10 @@ int main() {
   assert(!encoder.healthy());
   fakePcntFailure = 0;
   assert(!encoder.readAllTicks(ticks)); // 读取错误锁存，不能伪装为零轮速
+  assert(encoder.recover());
+  assert(encoder.healthy());
+  assert(encoder.readAllTicks(ticks));
+  fakePcnt[0] = 5;
+  assert(encoder.readTicks(robot::frontLeft) == 5 * robot::config::encoderDirection[0]);
 
 }

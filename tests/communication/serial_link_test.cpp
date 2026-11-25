@@ -9,9 +9,11 @@
 
 #include "fakes/Arduino.h"
 #include "serial_test_helpers.h"
+#include <driver/pcnt.h>
 #include "../../src/communication/serial_link.h"
 #include "../../src/app/robot_controller.h"
 #include "../../src/config/board_pins.h"
+#include "../../src/config/robot_config.h"
 #include <limits>
 
 int main() {
@@ -83,16 +85,87 @@ int main() {
 
   send(wire(PacketType::arm, {1}));
   send(velocityWire(.45f, 0, 0));
-  for (int n = 0; n < 50; ++n) {
+  for (int n = 0; n < 99; ++n) {
+    for (uint8_t i = 0; i < robot::wheelCount; ++i)
+      fakePcnt[i] = static_cast<int16_t>(10 * robot::config::encoderDirection[i]);
     fakeNow += 10000;
     c.update();
     send(broken); // CRC errors must not refresh the velocity watchdog.
   }
-  assert(!c.armed() && !c.motionAllowed() && fakePwm[0] == 0);
-  send(wire(PacketType::arm, {1}));
-  assert(c.armed());
+  assert(c.armed() && c.motionAllowed() && fakePwm[0] != 0);
+  for (uint8_t i = 0; i < robot::wheelCount; ++i)
+    fakePcnt[i] = static_cast<int16_t>(10 * robot::config::encoderDirection[i]);
+  fakeNow += 10000;
+  c.update();
+  send(broken);
+  // Watchdog stops wheels and zeroes targets, but keeps armed so next 0x01 resumes immediately.
+  assert(c.armed() && !c.motionAllowed() && fakePwm[0] == 0 && c.fault() == robot::RobotFault::none);
+  for (float v : c.wheelTarget().value) assert(v == 0.0f);
+  send(wire(PacketType::lift, {0}));
+  assert(acknowledged(Serial.output, PacketType::lift, 0) && c.liftTarget() == 0);
+  send(velocityWire(.45f, 0, 0));
+  assert(acknowledged(Serial.output, PacketType::velocity, 0));
+  fakeNow += 10000; c.update();
+  assert(c.armed() && c.motionAllowed() && fakePwm[0] != 0);
+  // 0x01 with NaN/Inf stops wheels safely and replies ACK error without disarming or faulting.
+  const uint32_t liftBeforeNan = fakePwm[4];
   send(velocityWire(std::numeric_limits<float>::quiet_NaN(), 0, 0));
-  assert(!c.armed() && acknowledged(Serial.output, PacketType::velocity, 1));
+  assert(c.armed() && !c.motionAllowed() && fakePwm[0] == 0 &&
+         c.fault() == robot::RobotFault::none && c.liftActive() && fakePwm[4] == liftBeforeNan &&
+         acknowledged(Serial.output, PacketType::velocity, 1));
+  send(velocityWire(.45f, 0, 0));
+  assert(acknowledged(Serial.output, PacketType::velocity, 0));
+  fakeNow += 10000; c.update();
+  assert(c.armed() && c.motionAllowed() && fakePwm[0] != 0);
+  send(velocityWire(0, std::numeric_limits<float>::infinity(), 0));
+  assert(c.armed() && !c.motionAllowed() && fakePwm[0] == 0 &&
+         c.fault() == robot::RobotFault::none &&
+         acknowledged(Serial.output, PacketType::velocity, 1));
+
+  // Transient IMU dropout sets imuValid=0 without faulting or blocking chassis/lift.
+  fakeImuReadStatus = -1;
+  for (int n = 0; n < 15; ++n) {
+    fakeNow += 10000; c.update();
+  }
+  assert(!c.imuReady() && c.fault() == robot::RobotFault::none && c.armed());
+  send(wire(PacketType::statusRequest));
+  {
+    const auto sp = packets(Serial.output);
+    const auto *st = findPacket(sp, PacketType::status);
+    assert(st && st->data[1] == 0 && (st->data[0] & 2) && !(st->data[0] & 16));
+    assert(!findPacket(sp, PacketType::imu) && findPacket(sp, PacketType::odometry));
+  }
+  send(wire(PacketType::lift, {0}));
+  assert(acknowledged(Serial.output, PacketType::lift, 0));
+  fakeImuReadStatus = 0;
+  fakeNow += 10000; c.update();
+  assert(c.imuReady());
+
+  // Runtime encoder fault preserves lift and recovers cleanly via 0x03(1) without reboot.
+  fakePcntFailure = 1;
+  fakeNow += 10000; c.update();
+  assert(!c.armed() && fakePwm[0] == 0 && c.fault() == robot::RobotFault::encoder);
+  assert(c.liftActive() && fakePwm[4] == liftBeforeNan);
+  send(wire(PacketType::statusRequest));
+  {
+    const auto sp = packets(Serial.output);
+    const auto *st = findPacket(sp, PacketType::status);
+    assert(st && st->data[1] == static_cast<uint8_t>(robot::RobotFault::encoder) && !(st->data[0] & 2));
+  }
+  send(wire(PacketType::lift, {0}));
+  assert(acknowledged(Serial.output, PacketType::lift, 0));
+  send(wire(PacketType::arm, {1}));
+  assert(acknowledged(Serial.output, PacketType::arm, 1) && !c.armed());
+  fakePcntFailure = 0;
+  send(wire(PacketType::arm, {1}));
+  assert(acknowledged(Serial.output, PacketType::arm, 0) && c.armed() &&
+         c.fault() == robot::RobotFault::none);
+  send(velocityWire(.45f, 0, 0));
+  assert(acknowledged(Serial.output, PacketType::velocity, 0));
+  fakeNow += 10000; c.update();
+  assert(c.motionAllowed() && fakePwm[0] != 0);
+  send(wire(PacketType::arm, {0}));
+  assert(acknowledged(Serial.output, PacketType::arm, 0) && !c.armed() && fakePwm[0] == 0);
 
   // A timed-out prefix must not consume a new valid command.
   const std::string complete = wire(PacketType::lift, {1});

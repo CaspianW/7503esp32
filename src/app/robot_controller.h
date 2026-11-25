@@ -54,7 +54,10 @@ public:
   bool encoderReady() const { return encoder_.healthy(); }
   bool imuReady() const;
   bool speedReady() const { return speedReady_; }
-  RobotFault fault() const { return fault_; }
+  RobotFault fault() const {
+    return fault_ != RobotFault::none ? fault_ :
+           (liftFault_ ? RobotFault::lift : RobotFault::none);
+  }
   const int64_t *ticks() const { return ticks_; } // M1～M4 电气顺序
   const WheelValues &wheelTarget() const { return chassis_.target(); } // 逻辑轮序
   const WheelValues &wheelSpeed() const { return speed_; } // 逻辑轮序
@@ -67,8 +70,10 @@ private:
   void halt();
   void stopChassis();
   bool initLift();
+  bool recoverEncoder();
+  void pollImu(uint32_t now);
   void fail(RobotFault fault);
-  bool hasLatchedFault() const;
+  bool hasChassisFault() const;
   void clearLowSpeedFault();
   bool commandTooSlow(const Twist2D &command) const;
   bool physicalStop() const;
@@ -96,6 +101,7 @@ private:
   uint32_t badFeedbackSince_[wheelCount] = {}; // 单位 ms
   bool badFeedback_[wheelCount] = {};
   RobotFault fault_ = RobotFault::none;
+  bool liftFault_ = false;
   bool lowSpeedFault_ = false;
   bool started_ = false;
   bool initialized_ = false;
@@ -103,7 +109,6 @@ private:
   bool benchDone_ = false;
   bool armed_ = false;
   bool manualMode_ = false;
-  bool commandReceived_ = false;
   bool emergencyStop_ = false;
   bool stopLatched_ = false;
   bool imuStarted_ = false;

@@ -19,6 +19,7 @@ public:
   int64_t readTicks(WheelId wheel);
   bool readAllTicks(int64_t ticks[wheelCount]);
   bool healthy() const { return initialized_ && healthy_; }
+  bool recover();
   void resetAll();
 
 private:

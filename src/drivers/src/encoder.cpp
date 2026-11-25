@@ -108,6 +108,21 @@ bool Encoder::readAllTicks(int64_t ticks[wheelCount]) {
   return healthy();
 }
 
+bool Encoder::recover() {
+  if (!initialized_) return false;
+  for (uint8_t i = 0; i < wheelCount; ++i) {
+    const pcnt_unit_t unit = static_cast<pcnt_unit_t>(i);
+    if (pcnt_counter_pause(unit) != ESP_OK ||
+        pcnt_counter_clear(unit) != ESP_OK ||
+        pcnt_counter_resume(unit) != ESP_OK) {
+      healthy_ = false;
+      return false;
+    }
+  }
+  healthy_ = true;
+  return true;
+}
+
 void Encoder::resetAll() {
   for (uint8_t i = 0; i < wheelCount; ++i) {
     accumulatedTicks_[i] = 0;
