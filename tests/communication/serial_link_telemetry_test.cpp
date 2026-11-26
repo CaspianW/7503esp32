@@ -30,7 +30,7 @@ int main() {
   Serial.output.clear();
   for (int n = 0; n < 10; ++n) tick(c, link);
   values = packets(Serial.output);
-  assert(values.size() == 3 && !c.armed());
+  assert(values.size() == 3 && c.armed());
   assert(robot::readU32LE(findPacket(values, PacketType::odometry)->data) == 100);
   assert(robot::readU32LE(findPacket(values, PacketType::imu)->data) == 100);
 
@@ -63,7 +63,7 @@ int main() {
   values = packets(Serial.output);
   assert(c.liftState() == 1 && findPacket(values, PacketType::liftState)->data[0] == 1);
 
-  Serial.output.clear(); fakeNow += 100000; link.update(c);
+  Serial.output.clear(); fakeNow += robot::config::telemetrySampleMaxAge * 1000U; link.update(c);
   values = packets(Serial.output);
   assert(!findPacket(values, PacketType::odometry) && !findPacket(values, PacketType::imu));
   assert(findPacket(values, PacketType::liftState)->data[0] == 1);

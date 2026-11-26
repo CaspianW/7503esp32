@@ -88,12 +88,12 @@ constexpr float maxWheelAcceleration = 50.0f; // 单位 m/s²
 constexpr float motorDutyLimit = 1.0f; // 单位占空比，闭环输出最大值
 constexpr uint32_t maxControlGap = 50000; // 单位 µs，超过该间隔时跳过本周期闭环输出
 constexpr uint32_t telemetryPeriod = 100000; // 单位 µs，10 Hz
-constexpr uint32_t imuFreshness = 100; // 单位 ms
-constexpr uint32_t telemetrySampleMaxAge = 100; // 单位 ms，过期的 O/I 样本不上报
+constexpr uint32_t imuFreshness = 500; // 单位 ms
+constexpr uint32_t telemetrySampleMaxAge = 500; // 单位 ms，过期的 O/I 样本不上报
 // 未确认安装朝向前里程计使用编码器推算的角速度。
 constexpr bool useImuYaw = false;
 constexpr int8_t imuYawDirection = 1; // 芯片 Z 轴与车体 Z 轴同向为 +1
-// 持续输出但编码器无反馈或方向相反时停止底盘（可通过 arm 恢复）；阈值仍需实车验证。
+// 展示防锁死模式：不再因堵转/低速起步卡滞触发反馈故障停机；以下阈值仅保留兼容定义。
 constexpr uint32_t feedbackTimeout = 500; // 单位 ms
 constexpr float feedbackMinDuty = 0.625f; // 单位占空比，与地面最低起转占空比一致
 constexpr float feedbackMinTarget = 0.02f; // 单位 m/s

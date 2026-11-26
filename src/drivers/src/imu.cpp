@@ -36,6 +36,7 @@ bool Imu::begin() {
   if (!Wire.begin(board::imuSda, board::imuScl)) {
     return false;
   }
+  Wire.setTimeOut(3); // 探测前即设置单次 I2C 事务超时（ms），防止总线异常卡死开机
 
   // ICM42670P 的 AD0 接线决定地址为 0x68 或 0x69；自动检测两者。
   if (respondsAt(0x68)) {
@@ -53,7 +54,6 @@ bool Imu::begin() {
     sensor_ = nullptr;
     return false;
   }
-  Wire.setTimeOut(3); // 单次 I2C 事务超时，单位 ms
   delay(100);
   initialized_ = true;
   return true;

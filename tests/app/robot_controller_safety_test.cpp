@@ -32,14 +32,13 @@ int main() {
   robot::RobotController controller;
   assert(controller.begin());
   assert(!controller.begin()); // 不能重启一次性模式
-  assert(stopped());
+  // 上电即默认使能待命（PWM 为 0），无需等待首帧速度样本即可接受 arm() 或 0x01。
+  assert(controller.armed() && stopped());
+  assert(controller.arm());
+  assert(controller.commandVelocity({0.10f, 0, 0}));
   tick(controller);
   assert(controller.speedReady() ==
          (robot::config::encoderReadEnabled || robot::config::chassisControlEnabled));
-  assert(controller.arm());
-  // 放开最低轮速下限后，0.10 m/s 与低速旋转均应正常使能输出且不触发故障 5。
-  assert(controller.commandVelocity({0.10f, 0, 0}));
-  tick(controller);
   assert(controller.armed() && controller.motionAllowed() && !stopped());
   assert(controller.fault() == robot::RobotFault::none);
   assert(controller.commandVelocity({0, 0, 0}));
@@ -88,18 +87,22 @@ int main() {
   if (robot::config::liftOutputsEnabled)
     assert(controller.liftActive() && fakePwm[4] == holdingLift);
   assert(!controller.commandVelocity({0.45f, 0, 0}));
+  assert(controller.commandVelocity({0, 0, 0}) && !controller.armed() && stopped());
 
-  // 急停仍立即停底盘并要求解除急停后重新 arm。
+  // 急停立即停底盘；解除急停后需 arm，或者直接显式 arm() 也可解除软件急停并恢复控制。
   assert(controller.arm());
   assert(controller.commandVelocity({0.45f, 0, 0}));
   spinForward(); tick(controller);
   controller.setEmergencyStop(true);
   assert(stopped()); assert(!controller.motionAllowed());
-  assert(!controller.arm());
   assert(!controller.commandVelocity({0.45f, 0, 0}));
   controller.setEmergencyStop(false);
   assert(!controller.commandVelocity({0.45f, 0, 0}));
   assert(controller.arm());
+  controller.setEmergencyStop(true);
+  assert(stopped() && controller.emergencyStopped());
+  assert(controller.arm());
+  assert(!controller.emergencyStopped() && controller.armed());
 
   // NaN / Inf 速度指令只安全停轮并返回失败，不解除使能、不锁存故障、不影响升降。
   assert(controller.commandVelocity({0.45f, 0, 0}));
@@ -139,10 +142,10 @@ int main() {
   assert(controller.fault() == robot::RobotFault::none);
   assert(controller.armed() && controller.motionAllowed() && !stopped());
 
-  // 瞬时 IMU 读失败仅降级为 imuReady()==false，不触发故障，不影响底盘驱动、arm 或升降。
+  // 瞬时 IMU 读失败仅降级为 imuReady()==false 并退避轮询，不触发故障，不影响底盘驱动、arm 或升降。
   assert(controller.imuReady());
   fakeImuReadStatus = -1;
-  for (int i = 0; i < 15; ++i) {
+  for (int i = 0; i < 55; ++i) {
     if (i % 5 == 0) assert(controller.commandVelocity({0.45f, 0, 0}));
     spinForward(); tick(controller);
   }
@@ -153,27 +156,24 @@ int main() {
     assert(controller.commandLift(robot::LiftPosition::raised));
   assert(controller.arm());
   fakeImuReadStatus = 0;
-  tick(controller);
+  for (int i = 0; i < 20; ++i) tick(controller);
   assert(controller.imuReady());
 
-  // 持续堵转/零反馈仍会安全停底盘，但不得停升降，且 arm() 可清除运行时故障恢复。
+  // 持续堵转/零反馈不得锁死或解除使能：PID 自动限幅，且随时可反向或变向脱困。
   robot::RobotController stalled;
-  assert(stalled.begin()); tick(stalled); assert(stalled.arm());
+  assert(stalled.begin()); tick(stalled);
   const uint32_t stalledLiftPwm = fakePwm[4];
-  for (int i = 0; i < 80 && stalled.fault() == robot::RobotFault::none; ++i) {
+  for (int i = 0; i < 80; ++i) {
     if (i % 5 == 0) assert(stalled.commandVelocity({0.45f, 0, 0}));
     tick(stalled);
   }
-  assert(stalled.fault() == robot::RobotFault::feedback);
-  assert(stopped() && !stalled.armed());
-  assert(!stalled.commandVelocity({0.45f, 0, 0}));
+  assert(stalled.fault() == robot::RobotFault::none);
+  assert(stalled.armed() && stalled.motionAllowed() && !stopped());
   if (robot::config::liftOutputsEnabled) {
     assert(stalled.liftActive() && fakePwm[4] == stalledLiftPwm);
     assert(stalled.commandLift(robot::LiftPosition::raised));
   }
-  assert(stalled.arm());
-  assert(stalled.armed() && stalled.fault() == robot::RobotFault::none);
-  assert(stalled.commandVelocity({0.45f, 0, 0}));
+  assert(stalled.commandVelocity({-0.30f, 0, 0}));
   spinForward(); tick(stalled);
   assert(stalled.motionAllowed() && !stopped());
 

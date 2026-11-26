@@ -27,9 +27,8 @@ int main() {
     Serial.output.clear(); Serial.input = bytes;
     while (Serial.available()) link.update(c);
   };
-  send(wire(PacketType::arm, {1})); // No speed sample yet.
-  assert(acknowledged(Serial.output, PacketType::arm, 1) && !c.armed());
-  fakeNow += 10000; c.update();
+  // Boot auto-arms immediately and accepts 0x03(1) / 0x01 with zero startup race.
+  assert(c.armed());
   send(wire(PacketType::arm, {1}));
   assert(acknowledged(Serial.output, PacketType::arm, 0) && c.armed());
   send(velocityWire(.45f, 0, 0));
@@ -124,7 +123,7 @@ int main() {
 
   // Transient IMU dropout sets imuValid=0 without faulting or blocking chassis/lift.
   fakeImuReadStatus = -1;
-  for (int n = 0; n < 15; ++n) {
+  for (int n = 0; n < 55; ++n) {
     fakeNow += 10000; c.update();
   }
   assert(!c.imuReady() && c.fault() == robot::RobotFault::none && c.armed());
@@ -138,28 +137,28 @@ int main() {
   send(wire(PacketType::lift, {0}));
   assert(acknowledged(Serial.output, PacketType::lift, 0));
   fakeImuReadStatus = 0;
-  fakeNow += 10000; c.update();
+  for (int n = 0; n < 20; ++n) {
+    fakeNow += 10000; c.update();
+  }
   assert(c.imuReady());
 
-  // Runtime encoder fault preserves lift and recovers cleanly via 0x03(1) without reboot.
+  // Runtime encoder fault pauses wheel PWM while staying armed, preserves lift, and auto-recovers.
+  send(velocityWire(.45f, 0, 0));
   fakePcntFailure = 1;
   fakeNow += 10000; c.update();
-  assert(!c.armed() && fakePwm[0] == 0 && c.fault() == robot::RobotFault::encoder);
+  assert(c.armed() && fakePwm[0] == 0 && c.fault() == robot::RobotFault::encoder);
   assert(c.liftActive() && fakePwm[4] == liftBeforeNan);
   send(wire(PacketType::statusRequest));
   {
     const auto sp = packets(Serial.output);
     const auto *st = findPacket(sp, PacketType::status);
-    assert(st && st->data[1] == static_cast<uint8_t>(robot::RobotFault::encoder) && !(st->data[0] & 2));
+    assert(st && st->data[1] == static_cast<uint8_t>(robot::RobotFault::encoder) && (st->data[0] & 2));
   }
   send(wire(PacketType::lift, {0}));
   assert(acknowledged(Serial.output, PacketType::lift, 0));
-  send(wire(PacketType::arm, {1}));
-  assert(acknowledged(Serial.output, PacketType::arm, 1) && !c.armed());
   fakePcntFailure = 0;
-  send(wire(PacketType::arm, {1}));
-  assert(acknowledged(Serial.output, PacketType::arm, 0) && c.armed() &&
-         c.fault() == robot::RobotFault::none);
+  fakeNow += 10000; c.update();
+  assert(c.armed() && c.fault() == robot::RobotFault::none);
   send(velocityWire(.45f, 0, 0));
   assert(acknowledged(Serial.output, PacketType::velocity, 0));
   fakeNow += 10000; c.update();

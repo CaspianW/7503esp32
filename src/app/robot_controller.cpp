@@ -87,7 +87,9 @@ bool RobotController::begin() {
   }
   lastControl_ = micros(); lastImu_ = lastControl_;
   if (encoderRequired) {
-    if (!encoder_.readAllTicks(ticks_)) { fail(RobotFault::encoder); return false; }
+    if (!encoder_.readAllTicks(ticks_) && (!encoder_.recover() || !encoder_.readAllTicks(ticks_))) {
+      fail(RobotFault::encoder); return false;
+    }
     int64_t logical[wheelCount] = {};
     for (uint8_t i = 0; i < wheelCount; ++i) logical[i] = ticks_[config::wheelChannel[i]];
     wheelSpeed_.update(logical, lastControl_, speed_);
@@ -104,6 +106,11 @@ bool RobotController::begin() {
     }
   }
   initialized_ = true;
+  // 上电默认使能待命（PWM 仍为 0，收到有效 0x01 后才运动），避免树莓派未先发 arm 时失控。
+  if (config::chassisControlEnabled && config::motorOutputsEnabled &&
+      !benchMode_ && !emergencyStop_ && !physicalStop()) {
+    armed_ = true;
+  }
   return true;
 }
 
@@ -112,26 +119,10 @@ bool RobotController::physicalStop() const {
     (digitalRead(config::emergencyStopPin) == (config::emergencyStopActiveHigh ? HIGH : LOW));
 }
 
-bool RobotController::feedbackPlausible(uint32_t now) {
-  for (uint8_t i = 0; i < wheelCount; ++i) {
-    const float target = chassis_.target().value[i];
-    const float measured = speed_.value[i];
-    const bool bad = fabsf(duty_.value[i]) >= config::feedbackMinDuty &&
-      fabsf(target) >= config::feedbackMinTarget &&
-      (fabsf(measured) < config::feedbackMinSpeed || target * measured < 0.0f);
-    if (!bad) { badFeedback_[i] = false; continue; }
-    if (!badFeedback_[i]) { badFeedback_[i] = true; badFeedbackSince_[i] = now; }
-    if (static_cast<uint32_t>(now - badFeedbackSince_[i]) >= config::feedbackTimeout)
-      return false;
-  }
-  return true;
-}
-
 void RobotController::halt() {
   motorDriver_.stopAll(false);
   duty_ = {}; command_ = {};
   chassis_.reset();
-  for (bool &bad : badFeedback_) bad = false;
 }
 
 void RobotController::stopChassis() {
@@ -190,15 +181,18 @@ bool RobotController::recoverEncoder() {
 }
 
 void RobotController::pollImu(uint32_t now) {
-  if (imuStarted_ && static_cast<uint32_t>(now - lastImu_) >= config::imuPeriod) {
-    lastImu_ = now;
-    ImuSample next{};
-    if (imu_.read(next)) { imuSample_ = next; hasImuSample_ = true; }
+  if (!imuStarted_) return;
+  const uint32_t period = imuFailCount_ >= 5 ? 200000U : config::imuPeriod;
+  if (static_cast<uint32_t>(now - lastImu_) < period) return;
+  lastImu_ = now;
+  ImuSample next{};
+  if (imu_.read(next)) {
+    imuSample_ = next;
+    hasImuSample_ = true;
+    imuFailCount_ = 0;
+  } else if (imuFailCount_ < 10) {
+    ++imuFailCount_;
   }
-}
-
-bool RobotController::hasChassisFault() const {
-  return fault_ != RobotFault::none && !lowSpeedFault_;
 }
 
 void RobotController::clearLowSpeedFault() {
@@ -251,22 +245,30 @@ void RobotController::fail(RobotFault fault) {
 }
 
 bool RobotController::arm() {
-  if (!initialized_ || emergencyStop_ ||
-      physicalStop() || benchMode_ || !config::chassisControlEnabled ||
-      !config::motorOutputsEnabled) return false;
-  if (!recoverEncoder()) return false;
-  if (!speedReady_) return false;
-  fault_ = RobotFault::none;
-  lowSpeedFault_ = false;
+  if (!initialized_ || physicalStop() || benchMode_ ||
+      !config::chassisControlEnabled || !config::motorOutputsEnabled) return false;
+  // 无物理急停触发时，显式 arm (0x03=1) 可直接解除软件急停并恢复控制，避免卡死。
+  if (emergencyStop_) {
+    emergencyStop_ = false;
+    safety_.setEmergencyStop(false);
+  }
+  const bool encoderOk = recoverEncoder();
   // 重复 arm 也丢弃旧速度，必须随后发送新命令。
-  stopChassis(); armed_ = true;
+  stopChassis();
+  fault_ = encoderOk ? RobotFault::none : RobotFault::encoder;
+  lowSpeedFault_ = false;
+  armed_ = true;
   return true;
 }
 
 bool RobotController::armManual() {
   if (!initialized_ || !config::manualOpenLoopEnabled ||
       !config::motorOutputsEnabled ||
-      emergencyStop_ || physicalStop() || benchMode_) return false;
+      physicalStop() || benchMode_) return false;
+  if (emergencyStop_) {
+    emergencyStop_ = false;
+    safety_.setEmergencyStop(false);
+  }
   if ((config::chassisControlEnabled || config::encoderReadEnabled) && !encoder_.healthy())
     recoverEncoder();
   fault_ = RobotFault::none;
@@ -283,13 +285,14 @@ bool RobotController::commandVelocity(const Twist2D &command) {
     safety_.invalidateCommand();
     return false;
   }
-  if (!armed_ || manualMode_ || emergencyStop_ || hasChassisFault() || physicalStop()) return false;
   if (command.vx == 0.0f && command.vy == 0.0f && command.wz == 0.0f) {
-    command_ = command;
-    safety_.noteVelocityCommand(millis());
     halt();
+    if (armed_ && !manualMode_ && !emergencyStop_ && !physicalStop()) {
+      safety_.noteVelocityCommand(millis());
+    }
     return true;
   }
+  if (!armed_ || manualMode_ || emergencyStop_ || physicalStop()) return false;
   if (commandTooSlow(command)) {
     // 轮速低于可控下限时停机并持续报故障 5，但保持使能，收到正常速度后自动恢复。
     halt();
@@ -366,14 +369,16 @@ void RobotController::update() {
     motorDriver_.stopAll(false);
     duty_ = {};
     chassis_.reset();
-    for (bool &bad : badFeedback_) bad = false;
-    if (encoderRequired && encoder_.healthy()) {
-      if (encoder_.readAllTicks(ticks_)) {
+    if (encoderRequired) {
+      if (encoder_.healthy() && encoder_.readAllTicks(ticks_)) {
         int64_t logical[wheelCount] = {};
         for (uint8_t i = 0; i < wheelCount; ++i) logical[i] = ticks_[config::wheelChannel[i]];
         if (wheelSpeed_.update(logical, now, speed_)) speedReady_ = true;
+        if (fault_ == RobotFault::encoder) fault_ = RobotFault::none;
+      } else if (recoverEncoder()) {
+        if (fault_ == RobotFault::encoder) fault_ = RobotFault::none;
       } else {
-        fail(RobotFault::encoder);
+        fault_ = RobotFault::encoder;
       }
     }
     pollImu(now);
@@ -382,11 +387,20 @@ void RobotController::update() {
   const float dt = elapsed * 0.000001f;
   bool speedValidThisCycle = true;
   if (encoderRequired) {
-    if (!encoder_.readAllTicks(ticks_)) {
-      fail(RobotFault::encoder);
+    if (!encoder_.healthy() || !encoder_.readAllTicks(ticks_)) {
+      // PCNT 异常仅暂停本拍轮输出并立即尝试自恢复，不 disarm、不永久锁死、不影响升降。
+      motorDriver_.stopAll(false);
+      duty_ = {};
+      chassis_.reset();
+      if (recoverEncoder()) {
+        if (fault_ == RobotFault::encoder) fault_ = RobotFault::none;
+      } else {
+        fault_ = RobotFault::encoder;
+      }
       pollImu(now);
       return;
     }
+    if (fault_ == RobotFault::encoder) fault_ = RobotFault::none;
     int64_t logical[wheelCount] = {};
     for (uint8_t i = 0; i < wheelCount; ++i) logical[i] = ticks_[config::wheelChannel[i]];
     if (wheelSpeed_.update(logical, now, speed_)) {
@@ -399,12 +413,11 @@ void RobotController::update() {
         odometry_.update(body, yawRate, dt, nowMs);
       }
     } else {
-      // 单次测速异常仅跳过本周期输出，不锁死整车也不影响升降。
+      // 单次测速异常（含自恢复后的首帧基线）仅跳过本拍输出，不锁死也不影响升降。
       speedValidThisCycle = false;
       motorDriver_.stopAll(false);
       duty_ = {};
       chassis_.reset();
-      for (bool &bad : badFeedback_) bad = false;
     }
   }
   if (benchMode_) {
@@ -439,9 +452,6 @@ void RobotController::update() {
         motorDriver_.stopAll(false);
         duty_ = {};
         chassis_.reset();
-        for (bool &bad : badFeedback_) bad = false;
-      } else if (!feedbackPlausible(nowMs)) {
-        fail(RobotFault::feedback);
       } else {
         for (uint8_t i = 0; i < wheelCount; ++i)
           electrical.value[config::wheelChannel[i]] = duty_.value[i];

@@ -73,11 +73,9 @@ private:
   bool recoverEncoder();
   void pollImu(uint32_t now);
   void fail(RobotFault fault);
-  bool hasChassisFault() const;
   void clearLowSpeedFault();
   bool commandTooSlow(const Twist2D &command) const;
   bool physicalStop() const;
-  bool feedbackPlausible(uint32_t now);
   MotorDriver motorDriver_;
   Encoder encoder_;
   WheelSpeed wheelSpeed_;
@@ -98,8 +96,6 @@ private:
   float manualDuty_ = 0.0f;
   ImuSample imuSample_{};
   int64_t ticks_[wheelCount] = {};
-  uint32_t badFeedbackSince_[wheelCount] = {}; // 单位 ms
-  bool badFeedback_[wheelCount] = {};
   RobotFault fault_ = RobotFault::none;
   bool liftFault_ = false;
   bool lowSpeedFault_ = false;
@@ -113,6 +109,7 @@ private:
   bool stopLatched_ = false;
   bool imuStarted_ = false;
   bool hasImuSample_ = false;
+  uint8_t imuFailCount_ = 0;
   bool speedReady_ = false;
   uint32_t lastControl_ = 0; // 单位 µs
   uint32_t lastImu_ = 0; // 单位 µs
