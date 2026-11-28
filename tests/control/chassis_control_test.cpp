@@ -44,7 +44,7 @@ int main() {
   assert(!c.update({0.1f, 0, 0}, measured, 0.01f, duty));
 
   robot::ChassisControl purePi;
-  robot::ChassisParam piParam{0.150f, 0.255f, 0.5f, 2.0f, 0.7f, 50.0f,
+  robot::ChassisParam piParam{0.140f, 0.255f, 0.5f, 2.0f, 0.7f, 50.0f,
                              0.0f, 0.0f, 0.0f,
                              robot::PidParam(0.8f, 6.0f, 0.0f, 1.0f, 0.25f, true)};
   assert(purePi.configure(piParam));
