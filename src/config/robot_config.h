@@ -20,7 +20,7 @@ constexpr float wheelDiameter = 0.065f; // 单位 m
 constexpr float wheelRadius = wheelDiameter * 0.5f; // 单位 m
 
 // 启用麦克纳姆轮运动前，需在组装好的底盘上实测以下尺寸。
-constexpr float wheelbase = 0.150f;  // 前后轮中心距，单位 m
+constexpr float wheelbase = 0.140f;  // 前后轮中心距，单位 m
 constexpr float trackWidth = 0.255f; // 左右轮中心距，单位 m
 
 // Yahboom 标称编码器为 13 PPR、减速比为 1:20；其示例对 AB 两路的边沿计数，
