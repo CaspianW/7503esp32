@@ -23,13 +23,13 @@ int main() {
   assert(fakeAttached[robot::board::servoS2] == 4);
   assert(fakePwm[4] == duty(robot::config::liftLoweredPulse));
   assert(c.liftActive() && c.liftTarget() == 0 && !c.liftCompletionKnown());
-  for (int n = 0; n < 299; ++n) tick(c);
+  for (int n = 0; n < 99; ++n) tick(c);
   assert(!c.liftCompletionKnown());
   tick(c);
   assert(c.liftCompletionKnown() && c.liftState() == 0);
   assert(c.commandLift(robot::LiftPosition::raised));
   assert(c.liftTarget() == 1 && fakePwm[4] == duty(robot::config::liftRaisedPulse));
-  for (int n = 0; n < 299; ++n) tick(c);
+  for (int n = 0; n < 99; ++n) tick(c);
   assert(c.liftCompletionKnown() && c.liftState() == 0);
   tick(c);
   assert(c.liftCompletionKnown() && c.liftState() == 1);
