@@ -64,4 +64,11 @@ void WheelControl::reset() {
   }
 }
 
+void WheelControl::reset(WheelId wheel) {
+  const uint8_t index = static_cast<uint8_t>(wheel);
+  if (index < wheelCount) {
+    pid_[index].reset();
+  }
+}
+
 } // robot 命名空间结束

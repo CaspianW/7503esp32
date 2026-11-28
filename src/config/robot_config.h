@@ -69,6 +69,16 @@ constexpr float wheelPidIntegralLimit = 0.25f; // Ki*iMax=1.25>=1.0，兼顾满�
 constexpr float wheelKs = 0.40f; // 单位占空比
 constexpr float wheelKv = 0.0f; // 单位 (占空比)/(m/s)
 constexpr float wheelMinDuty = 0.0f; // 单位占空比，去掉硬地板允许空转自由降速
+// 静止起转短脉冲：突破地毯/原地转向麦轮静摩擦，测到轮速 >= 阈值或超时立刻撤销切回纯 PI。
+constexpr float wheelKickstartDuty = 0.72f; // 单位占空比
+constexpr uint32_t wheelKickstartMs = 80; // 单位 ms
+constexpr float wheelKickstartSpeed = 0.03f; // 单位 m/s
+// 收到零速指令时主动闭环反接制动：快速消去惯性滑行，降至阈值/过零/超时后立刻切断 PWM。
+constexpr float wheelBrakeMinDuty = 0.25f; // 单位占空比
+constexpr float wheelBrakeGain = 1.4f; // 单位 (占空比)/(m/s)
+constexpr float wheelBrakeMaxDuty = 0.65f; // 单位占空比
+constexpr float wheelBrakeStopSpeed = 0.03f; // 单位 m/s
+constexpr uint32_t wheelBrakeMaxMs = 250; // 单位 ms
 
 constexpr float maxLinearSpeed = 0.5f;  // 单位 m/s，低于当前实测空载轮速
 constexpr float maxAngularSpeed = 2.0f; // 单位 rad/s

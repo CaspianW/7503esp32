@@ -25,6 +25,14 @@ struct ChassisParam {
   float kv; // 速度前馈，单位 (占空比)/(m/s)
   float minDuty; // 非零轮速目标的最小占空比
   PidParam pid;
+  float kickstartDuty; // 静止起转脉冲占空比（0 禁用）
+  uint32_t kickstartMs; // 起转脉冲最大时长，单位 ms
+  float kickstartSpeed; // 判定已脱离静止的速度阈值，单位 m/s
+  float brakeMinDuty; // 零速主动制动最低反接占空比
+  float brakeGain; // 零速主动制动反接比例增益，单位 (占空比)/(m/s)
+  float brakeMaxDuty; // 零速主动制动最大反接占空比（0 禁用）
+  float brakeStopSpeed; // 判定已刹停的速度阈值，单位 m/s
+  uint32_t brakeMaxMs; // 主动制动最大时长，单位 ms
 };
 
 class ChassisControl {
@@ -40,6 +48,13 @@ private:
   MecanumKinematics kinematics_;
   WheelControl wheels_;
   WheelValues target_{};
+  bool kickstartActive_[wheelCount] = {};
+  uint32_t kickstartElapsedUs_[wheelCount] = {};
+  int8_t prevTargetSign_[wheelCount] = {};
+  bool brakingActive_[wheelCount] = {};
+  int8_t brakeSpinSign_[wheelCount] = {};
+  uint32_t brakeElapsedUs_[wheelCount] = {};
+  bool zeroLatched_ = false;
   bool ready_ = false;
 };
 

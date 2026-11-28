@@ -71,7 +71,10 @@ bool RobotController::begin() {
       config::maxWheelAcceleration, config::wheelKs, config::wheelKv,
       config::wheelMinDuty,
       PidParam(config::wheelPidKp, config::wheelPidKi, config::wheelPidKd,
-               config::wheelPidOutputLimit, config::wheelPidIntegralLimit, true)};
+               config::wheelPidOutputLimit, config::wheelPidIntegralLimit, true),
+      config::wheelKickstartDuty, config::wheelKickstartMs, config::wheelKickstartSpeed,
+      config::wheelBrakeMinDuty, config::wheelBrakeGain, config::wheelBrakeMaxDuty,
+      config::wheelBrakeStopSpeed, config::wheelBrakeMaxMs};
     if (!config::motorOutputsEnabled || !config::wheelMappingConfirmed ||
         !geometryReady || !chassis_.configure(param) ||
         !isfinite(config::minWheelSpeed) || config::minWheelSpeed < 0.0f ||
@@ -286,10 +289,26 @@ bool RobotController::commandVelocity(const Twist2D &command) {
     return false;
   }
   if (command.vx == 0.0f && command.vy == 0.0f && command.wz == 0.0f) {
-    halt();
-    if (armed_ && !manualMode_ && !emergencyStop_ && !physicalStop()) {
-      safety_.noteVelocityCommand(millis());
+    if (!armed_ || manualMode_ || emergencyStop_ || physicalStop()) {
+      halt();
+      return true;
     }
+    bool spinning = false;
+    for (uint8_t i = 0; i < wheelCount; ++i) {
+      if (fabsf(speed_.value[i]) > config::wheelBrakeStopSpeed) {
+        spinning = true;
+        break;
+      }
+    }
+    if (!spinning || config::wheelBrakeMaxDuty <= 0.0f || config::wheelBrakeMaxMs == 0U) {
+      halt();
+      safety_.noteVelocityCommand(millis());
+      return true;
+    }
+    // 车轮仍在滚动时交由闭环控制周期输出短时主动反接制动，停稳后自动切断 PWM。
+    clearLowSpeedFault();
+    command_ = command;
+    safety_.noteVelocityCommand(millis());
     return true;
   }
   if (!armed_ || manualMode_ || emergencyStop_ || physicalStop()) return false;

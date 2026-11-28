@@ -27,6 +27,7 @@ public:
                      const WheelValues &measured, float dt,
                      const WheelValues &feedforward, float minDuty);
   void reset();
+  void reset(WheelId wheel);
 
 private:
   Pid pid_[wheelCount];
