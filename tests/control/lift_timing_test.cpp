@@ -16,25 +16,25 @@ int main() {
   assert(!lift.completionKnown());
   lift.request(robot::LiftPosition::lowered, 0);
   assert(fakePwm[4] != 0);
-  lift.update(2999);
+  lift.update(999);
   assert(!lift.completionKnown());
-  lift.update(3000);
+  lift.update(1000);
   assert(lift.completionKnown() && lift.completedState() == 0);
 
   lift.request(robot::LiftPosition::raised, 3100);
   const uint32_t raisedDuty = fakePwm[4];
   assert(raisedDuty != 0 && lift.completedState() == 0);
-  lift.request(robot::LiftPosition::raised, 5000); // 重发不得重新等待3s。
-  lift.update(6099);
+  lift.request(robot::LiftPosition::raised, 3600); // 重发不得重新等待1s。
+  lift.update(4099);
   assert(lift.completedState() == 0);
-  lift.update(6100);
+  lift.update(4100);
   assert(lift.completedState() == 1 && fakePwm[4] == raisedDuty);
 
   lift.request(robot::LiftPosition::lowered, 7000);
-  lift.request(robot::LiftPosition::raised, 8000); // 中途反向取消下降的完成事件。
-  lift.update(10000);
+  lift.request(robot::LiftPosition::raised, 7500); // 中途反向取消下降的完成事件。
+  lift.update(8499);
   assert(lift.completedState() == 1);
-  lift.update(11000);
+  lift.update(8500);
   assert(lift.completedState() == 1);
 
   lift.request(robot::LiftPosition::lowered, 12000);
@@ -43,14 +43,14 @@ int main() {
   assert(lift.completedState() == 1 && fakePwm[4] == 0);
   begin();
   lift.request(robot::LiftPosition::lowered, 21000);
-  lift.update(23999);
+  lift.update(21999);
   assert(lift.completedState() == 1);
-  lift.update(24000);
+  lift.update(22000);
   assert(lift.completedState() == 0);
 
-  lift.request(robot::LiftPosition::raised, UINT32_MAX - 1000);
-  lift.update(1998);
+  lift.request(robot::LiftPosition::raised, UINT32_MAX - 500);
+  lift.update(498);
   assert(lift.completedState() == 0);
-  lift.update(1999);
+  lift.update(499);
   assert(lift.completedState() == 1);
 }
